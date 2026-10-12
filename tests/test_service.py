@@ -127,6 +127,28 @@ def test_scanner_respects_request_budget(monkeypatch):
     assert len(calls) == 3
 
 
+def test_cli_parser_exposes_scope_and_response_limits():
+    from red_wolf.cli import build_arg_parser
+
+    args = build_arg_parser().parse_args(
+        [
+            "--url",
+            "https://example.com",
+            "--exclude-path",
+            "/admin",
+            "--exclude-path",
+            "/internal",
+            "--max-requests",
+            "25",
+            "--max-response-bytes",
+            "65536",
+        ]
+    )
+    assert args.exclude_path == ["/admin", "/internal"]
+    assert args.max_requests == 25
+    assert args.max_response_bytes == 65536
+
+
 def test_deep_probe_rejects_cross_origin_candidates():
     from red_wolf.deep_probe import verify_unauth_download
 

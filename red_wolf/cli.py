@@ -165,6 +165,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-discovery", action="store_true", help="Skip same-origin robots/sitemap/OpenAPI discovery")
     parser.add_argument("--max-discovered", type=int, default=100, help="Maximum discovered paths per target (default: 100)")
     parser.add_argument("--max-requests", type=int, default=2000, help="Maximum HTTP requests per target (default: 2000)")
+    parser.add_argument("--exclude-path", action="append", default=[], help="Relative path prefix to exclude; repeat for multiple paths")
+    parser.add_argument("--max-response-bytes", type=int, default=1_000_000, help="Maximum response bytes retained per request (default: 1000000)")
     parser.add_argument("--no-learning", action="store_true", help="Disable local adaptive ordering and local scan history")
     parser.add_argument("--feedback-path", help="Record explicit feedback for one path after a scan")
     parser.add_argument("--feedback", choices=["useful", "not-useful"], help="Label --feedback-path for future ordering")
@@ -360,6 +362,8 @@ def execute(args: argparse.Namespace) -> int:
         discovery=not getattr(args, "no_discovery", False),
         max_discovered_paths=getattr(args, "max_discovered", 100),
         max_requests=getattr(args, "max_requests", 2000),
+        excluded_paths=list(getattr(args, "exclude_path", [])),
+        max_response_bytes=getattr(args, "max_response_bytes", 1_000_000),
         max_discovery_documents=25 if args.profile == "comprehensive" else 12,
         max_javascript_bytes=1_000_000,
         learning=not getattr(args, "no_learning", False),
@@ -391,6 +395,8 @@ def execute(args: argparse.Namespace) -> int:
                 max_discovery_documents=config.max_discovery_documents,
                 max_javascript_bytes=config.max_javascript_bytes,
                 max_requests=config.max_requests,
+                excluded_paths=list(config.excluded_paths),
+                max_response_bytes=config.max_response_bytes,
                 learning=config.learning,
             )
         )

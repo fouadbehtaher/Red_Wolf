@@ -122,6 +122,8 @@ python -m red_wolf.cli \
 | `--no-discovery` | Disable same-origin discovery from `robots.txt`, sitemaps, and OpenAPI/Swagger documents |
 | `--max-discovered` | Cap discovered paths per target (default: 100) |
 | `--max-requests` | Cap total HTTP requests per target (default: 2000) |
+| `--exclude-path` | Exclude a relative path subtree; repeat for multiple paths |
+| `--max-response-bytes` | Bound retained response bytes per request |
 | `--no-learning` | Disable the local adaptive history for this run |
 | `--feedback-path` / `--feedback` | Label a path `useful` or `not-useful` to improve future ordering |
 | `--ai-analyze` | Send findings to an LLM for analysis + write-up |
