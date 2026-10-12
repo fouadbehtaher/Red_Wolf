@@ -87,13 +87,14 @@
       <div class="metric"><strong>${esc(result.accessible)}</strong><span class="muted">accessible</span></div>
       <div class="metric"><strong>${esc(result.findings?.length || 0)}</strong><span class="muted">findings</span></div>
       <div class="metric"><strong>${esc(result.confirmed_unauth_downloads || 0)}</strong><span class="muted">downloads</span></div>
+      <div class="metric"><strong>${esc(result.classification_counts?.fallback || 0)}</strong><span class="muted">fallbacks</span></div>
     </div>`;
     const endpoints = result.accessible_endpoints || [];
     const downloads = result.deep_probe_downloads || [];
     const endpointRows = endpoints.map(item => `<tr>
       <td><code>${esc(item.method)}</code></td><td><code>${esc(item.path)}</code></td>
       <td>${esc(item.status_code)}</td><td>${esc(item.content_type || "unknown")}</td>
-      <td>${esc(item.response_size)} bytes</td><td>${esc(item.verification_status || "unverified")}</td>
+      <td>${esc(item.response_size)} bytes</td><td>${esc(item.classification || "unknown")}</td>
     </tr>`).join("");
     const downloadRows = downloads.map(item => `<tr>
       <td><code>${esc(item.path)}</code></td><td>${esc(item.status_code)}</td>
@@ -102,7 +103,7 @@
       <td>${item.downloaded ? "confirmed" : "not downloaded"}</td>
     </tr>`).join("");
     tables.innerHTML = `<h3>Accessible endpoints</h3>
-      <div class="result-table"><table><thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Type</th><th>Size</th><th>Verification</th></tr></thead>
+      <div class="result-table"><table><thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Type</th><th>Size</th><th>Classification</th></tr></thead>
       <tbody>${endpointRows || '<tr><td colspan="6" class="muted">No accessible endpoints recorded.</td></tr>'}</tbody></table></div>
       <h3>File/PDF evidence</h3>
       <div class="result-table"><table><thead><tr><th>Path</th><th>Status</th><th>Type</th><th>Size</th><th>Signature</th><th>Result</th></tr></thead>

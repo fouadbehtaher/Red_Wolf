@@ -413,6 +413,7 @@ def test_options_is_capability_only_not_accessible():
     )
     assert not result.accessible
     assert result.capability_response
+    assert result.classification == "capability"
 
 
 def test_text_probe_extracts_pdf_references():

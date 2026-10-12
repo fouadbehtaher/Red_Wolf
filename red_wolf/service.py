@@ -469,6 +469,7 @@ def _public_result(
             "cors_wildcard": result.cors_wildcard,
             "capability_response": result.capability_response,
             "notes": result.notes,
+            "classification": result.classification,
         }
         for result in results
         if result.accessible
@@ -513,6 +514,17 @@ def _public_result(
     return {
         "total_tested": len(results),
         "accessible": sum(item.accessible for item in results),
+        "classification_counts": {
+            name: sum(item.classification == name for item in results)
+            for name in (
+                "accessible",
+                "capability",
+                "fallback",
+                "rejected",
+                "error",
+                "budget-exhausted",
+            )
+        },
         "accessible_endpoints": accessible_endpoints,
         "findings": findings,
         "deep_probe_downloads": downloads,

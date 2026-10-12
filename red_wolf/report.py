@@ -72,6 +72,7 @@ def build_report_data(
                 "response_size": f.response_size,
                 "verification_status": f.verification_status,
                 "confidence": f.confidence,
+                "classification": f.classification,
             }
             for f in results
             if f.accessible
@@ -160,14 +161,14 @@ def to_markdown(report_data: dict) -> str:
 
     if report_data.get("accessible_endpoints"):
         lines.append("## Accessible Endpoint Inventory\n")
-        lines.append("| Method | Path | Status | Content-Type | Size | Verification |")
+        lines.append("| Method | Path | Status | Content-Type | Size | Classification |")
         lines.append("|---|---|---:|---|---:|---|")
         for endpoint in report_data["accessible_endpoints"]:
             lines.append(
                 f"| {endpoint['method']} | `{endpoint['path']}` | "
                 f"{endpoint['status_code']} | {endpoint.get('content_type') or 'unknown'} | "
                 f"{endpoint.get('response_size', 0)} | "
-                f"{endpoint.get('verification_status') or 'unverified'} |"
+                f"{endpoint.get('classification') or 'unknown'} |"
             )
         lines.append("")
 

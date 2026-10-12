@@ -64,6 +64,13 @@ class EndpointResult:
     verification_checks: List[str] = field(default_factory=list)
     confidence: int = 0
     capability_response: bool = False
+    classification: str = "unknown"
+
+    def __post_init__(self) -> None:
+        if self.classification == "unknown" and self.capability_response:
+            self.classification = "capability"
+        elif self.classification == "unknown" and self.status_code == 0:
+            self.classification = "error"
 
     def is_finding(self) -> bool:
         """
@@ -373,6 +380,7 @@ class UnauthAccessScanner:
                 accessible=False,
                 cors_wildcard=False,
                 notes="request budget exhausted",
+                classification="budget-exhausted",
             )
         self._requests_made += 1
         session = self._fresh_session()
@@ -399,6 +407,7 @@ class UnauthAccessScanner:
                 accessible=False, cors_wildcard=False,
                 notes=f"request failed: {exc}",
                 elapsed_ms=int((time.time() - start) * 1000),
+                classification="error",
             )
 
         elapsed_ms = int((time.time() - start) * 1000)
@@ -467,6 +476,15 @@ class UnauthAccessScanner:
             evidence_score=min(evidence_score, 100),
             evidence_reasons=evidence_reasons,
             capability_response=capability_response,
+            classification=(
+                "capability"
+                if capability_response
+                else "fallback"
+                if fallback_response
+                else "accessible"
+                if accessible
+                else "rejected"
+            ),
         )
         if fallback_response:
             result.notes = "response matched the base-page fallback fingerprint"
