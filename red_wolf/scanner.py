@@ -106,6 +106,7 @@ class ScanConfig:
     learning_namespace: str = ""
     excluded_paths: List[str] = field(default_factory=list)
     max_response_bytes: int = 1_000_000
+    max_requests: int = 2_000
 
 
 class UnauthAccessScanner:
@@ -497,11 +498,16 @@ class UnauthAccessScanner:
         with a delay between requests), collect results.
         """
         targets = self._build_target_list()
-        total = len(targets) * len(self.config.methods)
+        total = min(
+            len(targets) * len(self.config.methods),
+            max(1, self.config.max_requests),
+        )
         completed = 0
         results = []
         for path in targets:
             for method in self.config.methods:
+                if completed >= total:
+                    break
                 if progress_callback:
                     progress_callback(completed, total, path, method)
                 result = self.test_endpoint(path, method)
@@ -511,6 +517,8 @@ class UnauthAccessScanner:
                     progress_callback(completed, total, path, method)
                 if self.config.delay:
                     time.sleep(self.config.delay)
+            if completed >= total:
+                break
         self.results = results
         if self.learning_store:
             self.learning_store.record(

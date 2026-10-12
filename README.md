@@ -121,6 +121,7 @@ python -m red_wolf.cli \
 | `--profile` | `focused`, `balanced`, `full`, or `comprehensive`; the quick wizard defaults to `comprehensive` |
 | `--no-discovery` | Disable same-origin discovery from `robots.txt`, sitemaps, and OpenAPI/Swagger documents |
 | `--max-discovered` | Cap discovered paths per target (default: 100) |
+| `--max-requests` | Cap total HTTP requests per target (default: 2000) |
 | `--no-learning` | Disable the local adaptive history for this run |
 | `--feedback-path` / `--feedback` | Label a path `useful` or `not-useful` to improve future ordering |
 | `--ai-analyze` | Send findings to an LLM for analysis + write-up |
@@ -337,7 +338,8 @@ downloads are bounded to prevent an authorized scan from consuming
 unbounded memory or storage.
 
 The job API also accepts `timeout`, `delay`, `discovery`, `smart_order`,
-`learning`, `share_learning`, `auto_verify`, and `max_response_bytes`, allowing each authorized
+`learning`, `share_learning`, `auto_verify`, `max_response_bytes`, and
+`max_requests`, allowing each authorized
 tenant to choose a conservative quick scan or a slower evidence-focused scan.
 `GET /v1/jobs` lists only the caller's tenant jobs, and the events endpoint
 returns a redacted lifecycle audit trail without target URLs or response data.

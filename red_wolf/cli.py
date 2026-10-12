@@ -164,6 +164,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile", choices=["focused", "balanced", "full", "comprehensive"], default="balanced", help="Scan scope: focused, balanced, full, or comprehensive discovery plus full paths")
     parser.add_argument("--no-discovery", action="store_true", help="Skip same-origin robots/sitemap/OpenAPI discovery")
     parser.add_argument("--max-discovered", type=int, default=100, help="Maximum discovered paths per target (default: 100)")
+    parser.add_argument("--max-requests", type=int, default=2000, help="Maximum HTTP requests per target (default: 2000)")
     parser.add_argument("--no-learning", action="store_true", help="Disable local adaptive ordering and local scan history")
     parser.add_argument("--feedback-path", help="Record explicit feedback for one path after a scan")
     parser.add_argument("--feedback", choices=["useful", "not-useful"], help="Label --feedback-path for future ordering")
@@ -358,6 +359,7 @@ def execute(args: argparse.Namespace) -> int:
         wordlist_profile=args.profile,
         discovery=not getattr(args, "no_discovery", False),
         max_discovered_paths=getattr(args, "max_discovered", 100),
+        max_requests=getattr(args, "max_requests", 2000),
         max_discovery_documents=25 if args.profile == "comprehensive" else 12,
         max_javascript_bytes=1_000_000,
         learning=not getattr(args, "no_learning", False),
@@ -388,6 +390,7 @@ def execute(args: argparse.Namespace) -> int:
                 max_discovered_paths=config.max_discovered_paths,
                 max_discovery_documents=config.max_discovery_documents,
                 max_javascript_bytes=config.max_javascript_bytes,
+                max_requests=config.max_requests,
                 learning=config.learning,
             )
         )
@@ -396,7 +399,10 @@ def execute(args: argparse.Namespace) -> int:
         discovered_total += len(discovered)
         scanners.append(target_scanner)
     endpoint_count = sum(len(scanner._build_target_list()) for scanner in scanners)
-    request_count = endpoint_count * len(args.methods)
+    request_count = sum(
+        min(len(scanner._build_target_list()) * len(args.methods), scanner.config.max_requests)
+        for scanner in scanners
+    )
     print(f"[*] Expanded to {len(targets)} target(s).")
     print(f"[*] Discovery added {discovered_total} same-origin path(s).")
     print(f"[*] Testing {endpoint_count} endpoint(s), {request_count} total request(s), methods {args.methods} ...")

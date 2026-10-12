@@ -265,6 +265,7 @@ class ScanRequest(BaseModel):
     share_learning: bool = False
     auto_verify: bool = True
     max_response_bytes: int = Field(default=1_000_000, ge=16_384, le=5_000_000)
+    max_requests: int = Field(default=2_000, ge=1, le=10_000)
 
     @field_validator("methods")
     @classmethod
@@ -393,6 +394,7 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
                 learning=payload.get("learning", True),
                 auto_verify=payload.get("auto_verify", True),
                 max_response_bytes=payload.get("max_response_bytes", 1_000_000),
+                max_requests=payload.get("max_requests", 2_000),
                 learning_namespace=tenant_id,
             )
         )
@@ -503,6 +505,7 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
         "share_learning": request.share_learning,
         "auto_verify": request.auto_verify,
         "max_response_bytes": request.max_response_bytes,
+        "max_requests": request.max_requests,
     }
     _save_job(job_id, tenant_id, target, payload)
     try:

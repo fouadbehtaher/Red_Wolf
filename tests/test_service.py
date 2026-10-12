@@ -95,6 +95,38 @@ def test_scanner_rejects_external_endpoint_urls():
     assert scanner._build_target_list() == ["api"]
 
 
+def test_scanner_respects_request_budget(monkeypatch):
+    from red_wolf.scanner import EndpointResult, ScanConfig, UnauthAccessScanner
+
+    scanner = UnauthAccessScanner(
+        ScanConfig(
+            base_url="https://example.com",
+            endpoints=["one", "two"],
+            use_wordlist=False,
+            methods=["GET", "HEAD"],
+            max_requests=3,
+            learning=False,
+            auto_verify=False,
+            delay=0,
+        )
+    )
+    calls = []
+
+    def fake_test(path, method):
+        calls.append((path, method))
+        return EndpointResult(
+            url=f"https://example.com/{path}",
+            method=method,
+            status_code=404,
+            accessible=False,
+            cors_wildcard=False,
+        )
+
+    monkeypatch.setattr(scanner, "test_endpoint", fake_test)
+    assert len(scanner.run()) == 3
+    assert len(calls) == 3
+
+
 def test_deep_probe_rejects_cross_origin_candidates():
     from red_wolf.deep_probe import verify_unauth_download
 
