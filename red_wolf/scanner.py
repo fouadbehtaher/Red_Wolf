@@ -63,6 +63,7 @@ class EndpointResult:
     verification_status: str = "not-run"
     verification_checks: List[str] = field(default_factory=list)
     confidence: int = 0
+    capability_response: bool = False
 
     def is_finding(self) -> bool:
         """
@@ -125,6 +126,7 @@ class UnauthAccessScanner:
         self.results: List[EndpointResult] = []
         self._requests_made = 0
         self._discovery_budget = max(0, config.max_requests // 4)
+        self._baseline_fingerprint: str | None = None
         self.learning_store = None
         if config.learning:
             from .learning import LearningStore
@@ -170,8 +172,10 @@ class UnauthAccessScanner:
                 ordered.append(p)
         if self.config.smart_order:
             ordered.sort(
-                key=lambda path: self._path_signal_score(path) + self._learned_path_score(path),
-                reverse=True,
+                key=lambda path: (
+                    path != "",
+                    -(self._path_signal_score(path) + self._learned_path_score(path)),
+                ),
             )
         return ordered
 
@@ -403,8 +407,25 @@ class UnauthAccessScanner:
         cors_header = resp.headers.get("Access-Control-Allow-Origin", "")
         cors_wildcard = cors_header.strip() == "*"
 
-        # 2xx / 206 (partial content, common for file downloads) = served something
-        accessible = resp.status_code in (200, 201, 206)
+        content_type = resp.headers.get("Content-Type", "")
+        fingerprint = hashlib.sha256(body[:8192]).hexdigest()
+        capability_response = method.upper() == "OPTIONS"
+        accessible = (
+            method.upper() != "OPTIONS"
+            and resp.status_code in (200, 201, 206)
+        )
+        fallback_response = False
+        if method.upper() == "GET" and not path and accessible:
+            self._baseline_fingerprint = fingerprint
+        elif (
+            method.upper() == "GET"
+            and accessible
+            and self._baseline_fingerprint
+            and fingerprint == self._baseline_fingerprint
+            and path
+        ):
+            fallback_response = True
+            accessible = False
 
         sensitive = False
         snippet = ""
@@ -421,7 +442,7 @@ class UnauthAccessScanner:
             if sensitive:
                 evidence_score += 45
                 evidence_reasons.append("sensitive keyword in response body")
-            if "json" in resp.headers.get("Content-Type", "").lower():
+            if "json" in content_type.lower():
                 evidence_score += 15
                 evidence_reasons.append("structured JSON response")
             if cors_wildcard:
@@ -445,7 +466,13 @@ class UnauthAccessScanner:
             elapsed_ms=elapsed_ms,
             evidence_score=min(evidence_score, 100),
             evidence_reasons=evidence_reasons,
+            capability_response=capability_response,
         )
+        if fallback_response:
+            result.notes = "response matched the base-page fallback fingerprint"
+            result.evidence_reasons.append("generic fallback response")
+        elif capability_response:
+            result.notes = "OPTIONS capability response; not counted as content access"
         if truncated:
             result.notes = f"response truncated at {self.config.max_response_bytes} bytes"
         if self.config.auto_verify and result.is_candidate_for_verification():
@@ -469,6 +496,9 @@ class UnauthAccessScanner:
         fingerprints = []
         statuses = []
         for _ in range(max(1, min(self.config.verification_attempts, 3))):
+            if self._requests_made >= self.config.max_requests:
+                break
+            self._requests_made += 1
             session = self._fresh_session()
             try:
                 response = session.request(

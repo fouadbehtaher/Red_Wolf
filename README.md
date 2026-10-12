@@ -151,6 +151,13 @@ under `RED_WOLF_DOWNLOAD_DIR/<job_id>`. Saving is disabled by default, and
 job results retain paths and metadata rather than target hostnames or query
 strings.
 
+Access classification is conservative: successful `OPTIONS` responses are
+reported as capability metadata but are not counted as accessible content.
+GET responses that exactly match the base-page fingerprint are marked as
+generic fallback responses and excluded from accessible-endpoint evidence.
+Automatic repeat verification and deep-probe requests also consume the
+configured request budget, so reported totals remain auditable.
+
 ### AI providers supported out of the box
 
 | Provider | `--ai-provider` | Default model |

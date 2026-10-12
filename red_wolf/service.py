@@ -467,6 +467,8 @@ def _public_result(
             "confidence": result.confidence,
             "evidence_score": result.evidence_score,
             "cors_wildcard": result.cors_wildcard,
+            "capability_response": result.capability_response,
+            "notes": result.notes,
         }
         for result in results
         if result.accessible

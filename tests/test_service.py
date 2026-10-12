@@ -400,6 +400,21 @@ def test_public_result_exposes_safe_accessible_endpoint_inventory(service_module
     assert "secret" not in str(public)
 
 
+def test_options_is_capability_only_not_accessible():
+    from red_wolf.scanner import EndpointResult
+
+    result = EndpointResult(
+        url="https://example.com/api",
+        method="OPTIONS",
+        status_code=200,
+        accessible=False,
+        cors_wildcard=False,
+        capability_response=True,
+    )
+    assert not result.accessible
+    assert result.capability_response
+
+
 def test_text_probe_extracts_pdf_references():
     from red_wolf.deep_probe import extract_candidate_file_refs_from_text
 
