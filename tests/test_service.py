@@ -314,10 +314,28 @@ def test_retention_cleanup_removes_old_jobs(service_module, monkeypatch):
     )
     with service_module._connect() as db:
         db.execute(
-            "UPDATE jobs SET created_at = ? WHERE job_id = ?",
+            "UPDATE jobs SET created_at = ?, state = 'completed' WHERE job_id = ?",
             ("2000-01-01T00:00:00+00:00", "old-job"),
         )
     assert service_module._cleanup_expired_jobs() == 1
+
+
+def test_retention_cleanup_preserves_old_active_jobs(service_module, monkeypatch):
+    monkeypatch.setenv("RED_WOLF_RETENTION_DAYS", "1")
+    service_module._save_job(
+        "old-active-job",
+        "tenant-a",
+        "https://example.com",
+        {"methods": ["GET"], "profile": "focused", "max_discovered": 1},
+    )
+    with service_module._connect() as db:
+        db.execute(
+            "UPDATE jobs SET created_at = ?, state = 'running' WHERE job_id = ?",
+            ("2000-01-01T00:00:00+00:00", "old-active-job"),
+        )
+    assert service_module._cleanup_expired_jobs() == 0
+    job = service_module.get_job("old-active-job", "tenant-a")
+    assert job["state"] == "running"
 
 
 def test_dashboard_asset_is_available(service_module):

@@ -362,7 +362,9 @@ fragments, invalid ports, non-HTTPS schemes, and hosts outside the allowlist.
 
 `/metrics` is protected by the service token and returns Prometheus-compatible
 job-state gauges. Jobs and their audit events older than
-`RED_WOLF_RETENTION_DAYS` (default 30) are removed at service startup.
+`RED_WOLF_RETENTION_DAYS` (default 30) are removed at service startup when
+they are in a terminal state (`completed`, `failed`, or `cancelled`); active
+`queued` and `running` jobs are preserved.
 Shutdown also stops accepting new work and cancels queued executor futures.
 If a worker cannot be scheduled, the job is marked `failed` with a redacted
 `worker_unavailable` error instead of remaining indefinitely in `queued`.

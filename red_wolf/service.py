@@ -143,7 +143,10 @@ def _cleanup_expired_jobs() -> int:
     cutoff = datetime.now(timezone.utc).timestamp() - (_retention_days() * 86400)
     deleted = 0
     with _connect() as db:
-        rows = db.execute("SELECT job_id, created_at FROM jobs").fetchall()
+        rows = db.execute(
+            "SELECT job_id, created_at FROM jobs "
+            "WHERE state IN ('completed', 'failed', 'cancelled')"
+        ).fetchall()
         expired = []
         for row in rows:
             try:
