@@ -302,6 +302,8 @@ Per-tenant job quotas are controlled by `RED_WOLF_MAX_JOBS_PER_WINDOW` and
 `RED_WOLF_JOB_WINDOW_SECONDS` (defaults: 5 jobs per hour). A queued or running
 job can be cancelled with `POST /v1/jobs/{job_id}/cancel`; cancellation
 prevents a completed result from being published.
+Quota reservation and job insertion happen in one SQLite transaction, so
+concurrent requests cannot bypass the limit through a check-then-insert race.
 
 ### Container deployment
 

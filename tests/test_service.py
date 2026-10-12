@@ -326,3 +326,21 @@ def test_worker_submit_failure_marks_job_failed(service_module, monkeypatch):
     assert error.value.status_code == 503
     jobs = service_module.list_jobs(tenant_id, limit=100, state="failed")
     assert len(jobs["jobs"]) == 1
+
+
+def test_reserve_job_enforces_quota_atomically(service_module):
+    service_module._MAX_JOBS_PER_WINDOW = 1
+    service_module._reserve_job(
+        "reserved-job",
+        "tenant-a",
+        "https://example.com",
+        {"methods": ["GET"], "profile": "focused", "max_discovered": 1},
+    )
+    with pytest.raises(service_module.HTTPException) as error:
+        service_module._reserve_job(
+            "rejected-job",
+            "tenant-a",
+            "https://example.com",
+            {"methods": ["GET"], "profile": "focused", "max_discovered": 1},
+        )
+    assert error.value.status_code == 429

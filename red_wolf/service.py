@@ -314,6 +314,39 @@ def _save_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
         )
 
 
+def _reserve_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
+    """Atomically enforce the tenant quota and insert a queued job."""
+    hostname = urlparse(target).hostname
+    if not hostname:
+        raise ValueError("Target hostname is required")
+    cutoff = datetime.now(timezone.utc).timestamp() - _JOB_WINDOW_SECONDS
+    now = _now()
+    fingerprint = hashlib.sha256(hostname.encode("utf-8")).hexdigest()[:24]
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        rows = db.execute(
+            "SELECT created_at FROM jobs WHERE tenant_id = ?",
+            (tenant_id,),
+        ).fetchall()
+        recent = 0
+        for row in rows:
+            try:
+                recent += datetime.fromisoformat(row["created_at"]).timestamp() >= cutoff
+            except ValueError:
+                continue
+        if recent >= _MAX_JOBS_PER_WINDOW:
+            raise HTTPException(429, "Job quota exceeded for this tenant")
+        db.execute(
+            "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (job_id, tenant_id, "queued", now, now, fingerprint, json.dumps(payload), None),
+        )
+        db.execute(
+            "INSERT INTO job_events (job_id, tenant_id, event_type, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (job_id, tenant_id, "queued", now),
+        )
+
+
 def _update_job(
     job_id: str,
     state: str,
@@ -490,7 +523,6 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
     if not request.authorized:
         raise HTTPException(400, "Explicit authorization confirmation is required")
     target = _validate_target(str(request.target))
-    _check_job_quota(tenant_id)
     job_id = str(uuid.uuid4())
     payload = {
         "methods": request.methods,
@@ -507,7 +539,7 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
         "max_response_bytes": request.max_response_bytes,
         "max_requests": request.max_requests,
     }
-    _save_job(job_id, tenant_id, target, payload)
+    _reserve_job(job_id, tenant_id, target, payload)
     try:
         _executor.submit(_run_job, job_id, tenant_id, target, payload)
     except RuntimeError as exc:
