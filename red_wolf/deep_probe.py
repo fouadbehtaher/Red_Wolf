@@ -17,7 +17,9 @@ with zero authentication.
 """
 
 import json
+import hashlib
 import re
+from pathlib import Path
 from typing import List, Set
 from urllib.parse import urljoin, urlparse
 
@@ -105,6 +107,7 @@ def verify_unauth_download(
     candidate: str,
     timeout: int = 10,
     max_download_bytes: int = 5_000_000,
+    save_dir: Path | None = None,
 ):
     """
     Try to actually fetch a candidate file reference with a clean,
@@ -128,6 +131,7 @@ def verify_unauth_download(
         "content_type": None,
         "size_bytes": 0,
         "notes": "",
+        "saved_path": None,
     }
     if not _same_origin(base_url, url):
         result["notes"] = "candidate outside the target origin"
@@ -151,13 +155,26 @@ def verify_unauth_download(
         result["downloaded"] = len(content) <= max_download_bytes
         if len(content) > max_download_bytes:
             result["notes"] = "download exceeded configured size limit"
+        elif save_dir is not None:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+            suffix = Path(urlparse(url).path).suffix.lower()
+            suffix = suffix if re.fullmatch(r"\.[a-z0-9]{1,8}", suffix) else ".bin"
+            output = save_dir / f"{digest}{suffix}"
+            output.write_bytes(content)
+            result["saved_path"] = str(output)
     else:
         result["notes"] = f"not downloadable without auth (status {resp.status_code})"
 
     return result
 
 
-def deep_probe_json_endpoints(scanner, candidate_results, max_files_per_endpoint: int = 5):
+def deep_probe_json_endpoints(
+    scanner,
+    candidate_results,
+    max_files_per_endpoint: int = 5,
+    save_dir: Path | None = None,
+):
     """
     Given already-collected EndpointResult objects that look like JSON
     APIs (content_type contains 'json'), re-fetch the body, extract
@@ -216,6 +233,7 @@ def deep_probe_json_endpoints(scanner, candidate_results, max_files_per_endpoint
                 candidate,
                 scanner.config.timeout,
                 scanner.config.max_response_bytes,
+                save_dir=save_dir,
             )
             verification["source_endpoints"] = [ep.url]
             seen_resolved_urls[resolved] = len(deep_findings)

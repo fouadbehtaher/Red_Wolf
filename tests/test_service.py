@@ -322,12 +322,55 @@ def test_job_options_are_bounded_and_configurable(service_module):
     assert request.discovery is False
     assert request.max_response_bytes == 2_000_000
     assert request.share_learning is True
+    probe_request = service_module.ScanRequest(
+        target="https://example.com",
+        authorized=True,
+        deep_probe=True,
+        save_downloads=True,
+    )
+    assert probe_request.deep_probe is True
+    assert probe_request.save_downloads is True
     with pytest.raises(ValueError):
         service_module.ScanRequest(
             target="https://example.com",
             authorized=True,
             timeout=61,
         )
+
+
+def test_public_result_includes_redacted_deep_probe_downloads(service_module):
+    from red_wolf.scanner import EndpointResult, UnauthAccessScanner, ScanConfig
+
+    scanner = UnauthAccessScanner(
+        ScanConfig(base_url="https://example.com", learning=False)
+    )
+    result = EndpointResult(
+        url="https://example.com/api/items",
+        method="GET",
+        status_code=200,
+        accessible=True,
+        cors_wildcard=False,
+    )
+    public = service_module._public_result(
+        scanner,
+        [result],
+        [
+            {
+                "resolved_url": "https://example.com/files/report.pdf?token=secret",
+                "source_endpoints": ["https://example.com/api/items?key=secret"],
+                "downloaded": True,
+                "status_code": 200,
+                "content_type": "application/pdf",
+                "size_bytes": 128,
+                "saved_path": "red_wolf_downloads/job/report.pdf",
+            }
+        ],
+    )
+    serialized = str(public)
+    assert public["confirmed_unauth_downloads"] == 1
+    assert public["deep_probe_downloads"][0]["path"] == "files/report.pdf"
+    assert "?token=" not in serialized
+    assert "secret" not in serialized
 
 
 def test_metrics_are_authenticated_and_expose_job_states(service_module):

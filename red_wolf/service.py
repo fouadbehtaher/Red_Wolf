@@ -29,6 +29,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from .learning import LearningStore, normalize_path
+from .deep_probe import deep_probe_json_endpoints
 from .scanner import ScanConfig, UnauthAccessScanner
 
 
@@ -299,6 +300,8 @@ class ScanRequest(BaseModel):
     auto_verify: bool = True
     max_response_bytes: int = Field(default=1_000_000, ge=16_384, le=5_000_000)
     max_requests: int = Field(default=2_000, ge=1, le=10_000)
+    deep_probe: bool = False
+    save_downloads: bool = False
 
     @field_validator("methods")
     @classmethod
@@ -439,7 +442,11 @@ def _mark_job_running(job_id: str, tenant_id: str) -> bool:
     return bool(updated)
 
 
-def _public_result(scanner: UnauthAccessScanner, results: list) -> dict:
+def _public_result(
+    scanner: UnauthAccessScanner,
+    results: list,
+    deep_findings: list | None = None,
+) -> dict:
     findings = []
     for result in results:
         if not result.is_finding():
@@ -456,10 +463,31 @@ def _public_result(scanner: UnauthAccessScanner, results: list) -> dict:
                 "response_size": result.response_size,
             }
         )
+    downloads = []
+    for item in deep_findings or []:
+        downloads.append(
+            {
+                "path": normalize_path(urlparse(item["resolved_url"]).path),
+                "source_paths": [
+                    normalize_path(urlparse(source).path)
+                    for source in item.get("source_endpoints", [])
+                ],
+                "downloaded": item.get("downloaded", False),
+                "status_code": item.get("status_code"),
+                "content_type": item.get("content_type"),
+                "size_bytes": item.get("size_bytes", 0),
+                "notes": item.get("notes", ""),
+                "saved_path": item.get("saved_path"),
+            }
+        )
     return {
         "total_tested": len(results),
         "accessible": sum(item.accessible for item in results),
         "findings": findings,
+        "deep_probe_downloads": downloads,
+        "confirmed_unauth_downloads": sum(
+            item["downloaded"] for item in downloads
+        ),
         "learning": scanner.learning_summary(),
     }
 
@@ -497,11 +525,24 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
             LearningStore("https://shared.local", "shared").record_shared(
                 (item.url, item.accessible, item.is_finding()) for item in results
             )
+        deep_findings = []
+        if payload.get("deep_probe", False) and not cancel_event.is_set():
+            save_dir = None
+            if payload.get("save_downloads", False):
+                save_dir = (
+                    Path(os.environ.get("RED_WOLF_DOWNLOAD_DIR", "red_wolf_downloads"))
+                    / job_id
+                )
+            deep_findings = deep_probe_json_endpoints(
+                scanner,
+                results,
+                save_dir=save_dir,
+            )
         _finish_job_if_running(
             job_id,
             tenant_id,
             "completed",
-            _public_result(scanner, results),
+            _public_result(scanner, results, deep_findings),
         )
     except Exception as exc:
         if cancel_event.is_set():
@@ -590,6 +631,8 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
         "auto_verify": request.auto_verify,
         "max_response_bytes": request.max_response_bytes,
         "max_requests": request.max_requests,
+        "deep_probe": request.deep_probe,
+        "save_downloads": request.save_downloads if request.deep_probe else False,
     }
     _reserve_job(job_id, tenant_id, target, payload)
     try:

@@ -44,6 +44,8 @@
         <option>focused</option><option selected>balanced</option>
         <option>full</option><option>comprehensive</option>
       </select>
+      <label><input id="deepProbe" type="checkbox"> Verify unauthenticated file downloads</label>
+      <label><input id="saveDownloads" type="checkbox"> Save confirmed files locally</label>
       <button id="start">Start authorized scan</button>
       <button id="refresh" class="secondary">Refresh jobs</button>
       <div id="message" class="subtitle" role="status"></div>
@@ -99,7 +101,8 @@
     try {
       const data = await api("/v1/jobs", { method: "POST", body: JSON.stringify({
         target: el("target").value, authorized: true, profile: el("profile").value,
-        excluded_paths: excluded
+        excluded_paths: excluded, deep_probe: el("deepProbe").checked,
+        save_downloads: el("saveDownloads").checked
       })});
       message(`Queued ${data.job_id}`); await refresh(); await selectJob(data.job_id);
     } catch (error) { message(error.message); }
