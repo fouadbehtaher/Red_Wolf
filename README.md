@@ -135,6 +135,11 @@ python -m red_wolf.cli \
 | `--i-am-authorized` | Required confirmation gate |
 | `--interactive` / `-i` | Launch the interactive wizard instead of using flags |
 
+The scan always tests the authorized base target first. When discovery is
+enabled, it uses at most one quarter of the request budget for robots,
+sitemaps, API descriptions, HTML, and JavaScript discovery; the remaining
+budget is reserved for testing the base target and discovered/wordlist paths.
+
 ### AI providers supported out of the box
 
 | Provider | `--ai-provider` | Default model |

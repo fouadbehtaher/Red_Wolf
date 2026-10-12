@@ -116,7 +116,7 @@ def test_scanner_excludes_path_subtrees():
             excluded_paths=["/admin"],
         )
     )
-    assert scanner._build_target_list() == ["public"]
+    assert scanner._build_target_list() == ["", "public"]
 
 
 def test_scanner_rejects_external_endpoint_urls():
@@ -129,7 +129,7 @@ def test_scanner_rejects_external_endpoint_urls():
             use_wordlist=False,
         )
     )
-    assert scanner._build_target_list() == ["api"]
+    assert scanner._build_target_list() == ["", "api"]
 
 
 def test_scanner_respects_request_budget(monkeypatch):
@@ -145,6 +145,7 @@ def test_scanner_respects_request_budget(monkeypatch):
             learning=False,
             auto_verify=False,
             delay=0,
+            discovery=False,
         )
     )
     calls = []

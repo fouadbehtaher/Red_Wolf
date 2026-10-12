@@ -123,6 +123,8 @@ class UnauthAccessScanner:
     def __init__(self, config: ScanConfig):
         self.config = config
         self.results: List[EndpointResult] = []
+        self._requests_made = 0
+        self._discovery_budget = max(0, config.max_requests // 4)
         self.learning_store = None
         if config.learning:
             from .learning import LearningStore
@@ -142,7 +144,9 @@ class UnauthAccessScanner:
         """
         from .wordlists import get_wordlist
 
-        manual = [p.lstrip("/") for p in self.config.endpoints]
+        manual = [""] + [p.lstrip("/") for p in self.config.endpoints]
+        if self.config.discovery:
+            manual.extend(self.discover_paths())
         wordlist_targets: List[str] = []
 
         if self.config.use_wordlist:
@@ -232,9 +236,12 @@ class UnauthAccessScanner:
 
         documents_read = 0
         for seed in seeds:
+            if self._requests_made >= self._discovery_budget:
+                break
             if documents_read >= self.config.max_discovery_documents:
                 break
             try:
+                self._requests_made += 1
                 response = session.get(
                     urljoin(self.config.base_url.rstrip("/") + "/", seed),
                     headers={"User-Agent": self.config.user_agent},
@@ -292,11 +299,14 @@ class UnauthAccessScanner:
                         scripts.append(urljoin(response.url, script))
 
         for script_url in list(dict.fromkeys(scripts))[: self.config.max_discovery_documents]:
+            if self._requests_made >= self._discovery_budget:
+                break
             parsed_script = urlparse(script_url)
             base = urlparse(self.config.base_url)
             if parsed_script.netloc and parsed_script.netloc != base.netloc:
                 continue
             try:
+                self._requests_made += 1
                 response = session.get(
                     script_url,
                     headers={"User-Agent": self.config.user_agent},
@@ -352,7 +362,11 @@ class UnauthAccessScanner:
 
     def test_endpoint(self, path: str, method: str = "GET") -> EndpointResult:
         session = self._fresh_session()
-        url = urljoin(self.config.base_url.rstrip("/") + "/", path)
+        url = (
+            self.config.base_url.rstrip("/")
+            if not path
+            else urljoin(self.config.base_url.rstrip("/") + "/", path)
+        )
         headers = {"User-Agent": self.config.user_agent}
 
         start = time.time()
@@ -510,13 +524,16 @@ class UnauthAccessScanner:
         with a delay between requests), collect results.
         """
         targets = self._build_target_list()
+        remaining_requests = max(0, self.config.max_requests - self._requests_made)
         total = min(
             len(targets) * len(self.config.methods),
-            max(1, self.config.max_requests),
+            remaining_requests,
         )
         completed = 0
         results = []
         for path in targets:
+            if total == 0:
+                break
             for method in self.config.methods:
                 if completed >= total:
                     break
