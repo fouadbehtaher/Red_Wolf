@@ -53,6 +53,10 @@ def build_report_data(
     deep_findings = deep_findings or []
     findings = [r for r in results if r.is_finding()]
     confirmed_downloads = [d for d in deep_findings if d.get("downloaded")]
+    classification_names = (
+        "accessible", "capability", "fallback", "redirect",
+        "rejected", "error", "budget-exhausted",
+    )
 
     return {
         "scan_id": str(uuid.uuid4()),
@@ -63,9 +67,13 @@ def build_report_data(
         "total_accessible_without_auth": len([r for r in results if r.accessible]),
         "findings_count": len(findings),
         "confirmed_unauth_downloads": len(confirmed_downloads),
+        "classification_counts": {
+            name: sum(f.classification == name for f in results)
+            for name in classification_names
+        },
         "accessible_endpoints": [
             {
-                "path": f.url,
+                "path": urlparse(f.url).path or "/",
                 "method": f.method,
                 "status_code": f.status_code,
                 "content_type": f.content_type,
@@ -126,6 +134,8 @@ def to_markdown(report_data: dict) -> str:
     lines.append(f"| **Accessible without auth** | {report_data['total_accessible_without_auth']} |")
     lines.append(f"| **Findings** | {report_data['findings_count']} |")
     lines.append(f"| **Confirmed unauth downloads** | {report_data['confirmed_unauth_downloads']} |")
+    for name, count in report_data.get("classification_counts", {}).items():
+        lines.append(f"| **{name.replace('-', ' ').title()} responses** | {count} |")
     learning = report_data.get("learning", {})
     if learning.get("enabled"):
         lines.append(

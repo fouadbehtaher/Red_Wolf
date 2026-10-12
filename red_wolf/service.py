@@ -520,6 +520,7 @@ def _public_result(
                 "accessible",
                 "capability",
                 "fallback",
+                "redirect",
                 "rejected",
                 "error",
                 "budget-exhausted",

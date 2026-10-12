@@ -88,6 +88,8 @@
       <div class="metric"><strong>${esc(result.findings?.length || 0)}</strong><span class="muted">findings</span></div>
       <div class="metric"><strong>${esc(result.confirmed_unauth_downloads || 0)}</strong><span class="muted">downloads</span></div>
       <div class="metric"><strong>${esc(result.classification_counts?.fallback || 0)}</strong><span class="muted">fallbacks</span></div>
+      <div class="metric"><strong>${esc(result.classification_counts?.capability || 0)}</strong><span class="muted">capability</span></div>
+      <div class="metric"><strong>${esc(result.classification_counts?.redirect || 0)}</strong><span class="muted">redirects</span></div>
     </div>`;
     const endpoints = result.accessible_endpoints || [];
     const downloads = result.deep_probe_downloads || [];

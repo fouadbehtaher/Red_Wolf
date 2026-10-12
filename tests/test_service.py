@@ -416,6 +416,21 @@ def test_options_is_capability_only_not_accessible():
     assert result.classification == "capability"
 
 
+def test_redirect_is_not_accessible():
+    from red_wolf.scanner import EndpointResult
+
+    result = EndpointResult(
+        url="https://example.com/login",
+        method="GET",
+        status_code=302,
+        accessible=False,
+        cors_wildcard=False,
+        classification="redirect",
+    )
+    assert not result.accessible
+    assert result.classification == "redirect"
+
+
 def test_text_probe_extracts_pdf_references():
     from red_wolf.deep_probe import extract_candidate_file_refs_from_text
 

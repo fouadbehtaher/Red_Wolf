@@ -481,6 +481,8 @@ class UnauthAccessScanner:
                 if capability_response
                 else "fallback"
                 if fallback_response
+                else "redirect"
+                if 300 <= resp.status_code < 400
                 else "accessible"
                 if accessible
                 else "rejected"
@@ -491,6 +493,8 @@ class UnauthAccessScanner:
             result.evidence_reasons.append("generic fallback response")
         elif capability_response:
             result.notes = "OPTIONS capability response; not counted as content access"
+        elif 300 <= resp.status_code < 400:
+            result.notes = "redirect not followed; authentication state not inferred"
         if truncated:
             result.notes = f"response truncated at {self.config.max_response_bytes} bytes"
         if self.config.auto_verify and result.is_candidate_for_verification():
