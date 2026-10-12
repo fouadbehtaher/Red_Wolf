@@ -82,3 +82,14 @@ def test_deep_probe_rejects_cross_origin_candidates():
     )
     assert result["downloaded"] is False
     assert "outside the target origin" in result["notes"]
+
+
+def test_multiple_service_tokens_have_isolated_tenants(service_module, monkeypatch):
+    monkeypatch.delenv("RED_WOLF_SERVICE_TOKEN", raising=False)
+    monkeypatch.setenv("RED_WOLF_SERVICE_TOKENS", "alpha-token,beta-token")
+    assert service_module._require_token("alpha-token") != service_module._require_token(
+        "beta-token"
+    )
+    with pytest.raises(service_module.HTTPException) as error:
+        service_module._require_token("wrong-token")
+    assert error.value.status_code == 401

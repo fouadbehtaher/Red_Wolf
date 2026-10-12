@@ -312,7 +312,10 @@ docker run --rm -p 127.0.0.1:8000:8000 \
 
 Put TLS, rate limiting, and user authentication in front of the container.
 The service token is an internal service credential, not a replacement for
-per-user authentication.
+per-user authentication. For a small isolated deployment, configure one
+token with `RED_WOLF_SERVICE_TOKEN`, or several comma-separated tenant tokens
+with `RED_WOLF_SERVICE_TOKENS`; each token receives a separate tenant
+namespace and quota. Do not put commas in individual tokens.
 
 Endpoints:
 

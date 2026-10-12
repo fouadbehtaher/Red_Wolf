@@ -128,13 +128,24 @@ def _token_tenant(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()[:24]
 
 
+def _configured_tokens() -> list[str]:
+    values = os.environ.get("RED_WOLF_SERVICE_TOKENS", "")
+    if values.strip():
+        return [item.strip() for item in values.split(",") if item.strip()]
+    legacy = os.environ.get("RED_WOLF_SERVICE_TOKEN", "")
+    return [legacy] if legacy else []
+
+
 def _require_token(x_api_key: str | None = Header(default=None)) -> str:
-    expected = os.environ.get("RED_WOLF_SERVICE_TOKEN")
-    if not expected:
+    configured = _configured_tokens()
+    if not configured:
         raise HTTPException(503, "Service authentication is not configured")
-    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+    if not x_api_key:
         raise HTTPException(401, "Invalid service token")
-    return _token_tenant(expected)
+    for expected in configured:
+        if secrets.compare_digest(x_api_key, expected):
+            return _token_tenant(x_api_key)
+    raise HTTPException(401, "Invalid service token")
 
 
 def _allowed_hosts() -> set[str]:
@@ -350,7 +361,7 @@ def readyz() -> dict:
             db.execute("SELECT 1").fetchone()
     except sqlite3.Error as exc:
         raise HTTPException(503, "Service database is unavailable") from exc
-    if not os.environ.get("RED_WOLF_SERVICE_TOKEN"):
+    if not _configured_tokens():
         raise HTTPException(503, "Service authentication is not configured")
     if not _allowed_hosts():
         raise HTTPException(503, "No target hosts are configured")
