@@ -414,8 +414,37 @@ def test_download_verification_records_pdf_evidence(monkeypatch, tmp_path):
     )
     assert result["downloaded"] is True
     assert result["pdf_detected"] is True
+    assert result["pdf_version"] == "1.7"
     assert result["sha256"]
     assert Path(result["saved_path"]).read_bytes().startswith(b"%PDF-")
+
+
+def test_relative_file_reference_preserves_relative_path(monkeypatch):
+    from red_wolf import deep_probe
+
+    class Raw:
+        def read(self, _limit):
+            return b"%PDF-1.4\n"
+
+    class Response:
+        status_code = 200
+        headers = {"Content-Type": "application/pdf"}
+        raw = Raw()
+
+        def close(self):
+            pass
+
+    class Session:
+        def get(self, url, **_kwargs):
+            assert url == "https://example.com/api/files/report.pdf"
+            return Response()
+
+    monkeypatch.setattr(deep_probe.requests, "Session", lambda: Session())
+    result = deep_probe.verify_unauth_download(
+        "https://example.com/api/item/42",
+        "../files/report.pdf",
+    )
+    assert result["pdf_detected"] is True
 
 
 def test_metrics_are_authenticated_and_expose_job_states(service_module):

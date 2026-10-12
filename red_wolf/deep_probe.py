@@ -129,7 +129,9 @@ def verify_unauth_download(
     the kind of proof a bug bounty triager wants (not just a 200,
     but the actual bytes of a real internal file).
     """
-    url = candidate if candidate.startswith("http") else urljoin(base_url, candidate.lstrip("/"))
+    url = candidate if candidate.startswith(("http://", "https://")) else urljoin(
+        base_url, candidate
+    )
     session = requests.Session()
     session.trust_env = False
 
@@ -139,11 +141,13 @@ def verify_unauth_download(
         "downloaded": False,
         "status_code": None,
         "content_type": None,
+        "content_disposition": None,
         "size_bytes": 0,
         "notes": "",
         "saved_path": None,
         "sha256": None,
         "pdf_detected": False,
+        "pdf_version": None,
     }
     if not _same_origin(base_url, url):
         result["notes"] = "candidate outside the target origin"
@@ -157,6 +161,7 @@ def verify_unauth_download(
 
     result["status_code"] = resp.status_code
     result["content_type"] = resp.headers.get("Content-Type", "")
+    result["content_disposition"] = resp.headers.get("Content-Disposition")
 
     if resp.status_code in (200, 206):
         try:
@@ -165,12 +170,19 @@ def verify_unauth_download(
             resp.close()
         result["size_bytes"] = min(len(content), max_download_bytes)
         result["downloaded"] = len(content) <= max_download_bytes
-        result["sha256"] = hashlib.sha256(content).hexdigest()
-        result["pdf_detected"] = content.startswith(b"%PDF-") or (
-            "application/pdf" in result["content_type"].lower()
+        if result["downloaded"]:
+            result["sha256"] = hashlib.sha256(content).hexdigest()
+        pdf_match = re.match(rb"%PDF-([0-9.]+)", content[:16])
+        result["pdf_detected"] = pdf_match is not None
+        result["pdf_version"] = (
+            pdf_match.group(1).decode("ascii", errors="replace")
+            if pdf_match
+            else None
         )
         if len(content) > max_download_bytes:
             result["notes"] = "download exceeded configured size limit"
+        elif "pdf" in result["content_type"].lower() and not result["pdf_detected"]:
+            result["notes"] = "content type claimed PDF but the file signature was absent"
         elif save_dir is not None:
             save_dir.mkdir(parents=True, exist_ok=True)
             digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
@@ -205,6 +217,9 @@ def deep_probe_json_endpoints(
     for ep in candidate_results:
         if not ep.accessible:
             continue
+        if scanner._requests_made >= scanner.config.max_requests:
+            break
+        scanner._requests_made += 1
 
         # Re-fetch full body (scanner only stored a short snippet)
         session = requests.Session()
@@ -236,7 +251,11 @@ def deep_probe_json_endpoints(
             # multiple endpoints (e.g. both /search and /item/{id} point
             # to the same attachment) instead of downloading it N times.
             from urllib.parse import urljoin
-            resolved = candidate if candidate.startswith("http") else urljoin(scanner.config.base_url, candidate.lstrip("/"))
+            resolved = (
+                candidate
+                if candidate.startswith(("http://", "https://"))
+                else urljoin(ep.url, candidate)
+            )
             if not _same_origin(scanner.config.base_url, resolved):
                 continue
 
@@ -246,8 +265,11 @@ def deep_probe_json_endpoints(
                     existing["source_endpoints"].append(ep.url)
                 continue
 
+            if scanner._requests_made >= scanner.config.max_requests:
+                break
+            scanner._requests_made += 1
             verification = verify_unauth_download(
-                scanner.config.base_url,
+                ep.url,
                 candidate,
                 scanner.config.timeout,
                 scanner.config.max_response_bytes,

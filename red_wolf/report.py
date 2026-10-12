@@ -153,6 +153,13 @@ def to_markdown(report_data: dict) -> str:
             lines.append(f"- `{d['resolved_url']}` — **{status}** "
                          f"(status {d.get('status_code')}, {d.get('size_bytes', 0)} bytes, "
                          f"referenced from: {sources})")
+            if d.get("pdf_detected"):
+                lines.append(
+                    f"  - **PDF proof:** signature `%PDF-{d.get('pdf_version')}`, "
+                    f"SHA-256 `{d.get('sha256')}`"
+                )
+            if d.get("saved_path"):
+                lines.append(f"  - **Saved evidence:** `{d['saved_path']}`")
         lines.append("")
 
     if report_data.get("ai_analysis"):

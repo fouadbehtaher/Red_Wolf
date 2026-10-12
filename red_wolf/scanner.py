@@ -361,6 +361,16 @@ class UnauthAccessScanner:
         return body[:limit], len(body) > limit
 
     def test_endpoint(self, path: str, method: str = "GET") -> EndpointResult:
+        if self._requests_made >= self.config.max_requests:
+            return EndpointResult(
+                url=urljoin(self.config.base_url.rstrip("/") + "/", path),
+                method=method,
+                status_code=0,
+                accessible=False,
+                cors_wildcard=False,
+                notes="request budget exhausted",
+            )
+        self._requests_made += 1
         session = self._fresh_session()
         url = (
             self.config.base_url.rstrip("/")

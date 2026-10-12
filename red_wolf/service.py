@@ -475,9 +475,11 @@ def _public_result(
                 "downloaded": item.get("downloaded", False),
                 "status_code": item.get("status_code"),
                 "content_type": item.get("content_type"),
+                "content_disposition": item.get("content_disposition"),
                 "size_bytes": item.get("size_bytes", 0),
                 "sha256": item.get("sha256"),
                 "pdf_detected": item.get("pdf_detected", False),
+                "pdf_version": item.get("pdf_version"),
                 "notes": item.get("notes", ""),
                 "saved_path": item.get("saved_path"),
             }
