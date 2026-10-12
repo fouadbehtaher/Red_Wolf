@@ -26,6 +26,7 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlsplit
 
 import requests
 
@@ -130,9 +131,15 @@ def _summarize_for_prompt(report_data: dict, max_findings: int = 10) -> dict:
     (e.g. raw body snippets beyond what's useful for judgement).
     """
     findings = report_data.get("findings", [])[:max_findings]
+
+    def safe_path(value: object) -> str:
+        parsed = urlsplit(str(value))
+        path = parsed.path or "/"
+        return path[:500]
+
     trimmed_findings = [
         {
-            "url": f["url"],
+            "path": safe_path(f.get("url", "")),
             "method": f["method"],
             "status_code": f["status_code"],
             "cors_wildcard": f["cors_wildcard"],
@@ -143,7 +150,7 @@ def _summarize_for_prompt(report_data: dict, max_findings: int = 10) -> dict:
         for f in findings
     ]
     return {
-        "target_location": report_data.get("target_location"),
+        "target_location": "<authorized-target>",
         "total_endpoints_tested": report_data.get("total_endpoints_tested"),
         "total_accessible_without_auth": report_data.get("total_accessible_without_auth"),
         "findings_count": report_data.get("findings_count"),
@@ -151,7 +158,7 @@ def _summarize_for_prompt(report_data: dict, max_findings: int = 10) -> dict:
         "findings": trimmed_findings,
         "deep_probe_downloads": [
             {
-                "resolved_url": d.get("resolved_url"),
+                "path": safe_path(d.get("resolved_url", "")),
                 "downloaded": d.get("downloaded"),
                 "status_code": d.get("status_code"),
             }

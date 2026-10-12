@@ -150,6 +150,9 @@ the flag or the environment variable.
 AI requests are capped at 2,048 output tokens and are skipped when the scan
 has no findings or confirmed downloads, so a clean scan does not consume
 provider credits.
+The AI summary intentionally replaces the target host with
+`<authorized-target>` and sends paths without query strings or fragments;
+raw response bodies, credentials, and API keys are not sent.
 
 Quick interactive mode detects the AI provider from the key prefix:
 `nvapi-` selects NVIDIA, `sk-or-` selects OpenRouter, and `sk-` selects

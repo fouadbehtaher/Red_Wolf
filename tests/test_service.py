@@ -149,6 +149,43 @@ def test_cli_parser_exposes_scope_and_response_limits():
     assert args.max_response_bytes == 65536
 
 
+def test_ai_summary_redacts_hosts_queries_and_fragments():
+    from red_wolf.ai_analysis import _summarize_for_prompt
+
+    summary = _summarize_for_prompt(
+        {
+            "target_location": "https://secret.example/?token=do-not-send",
+            "total_endpoints_tested": 1,
+            "total_accessible_without_auth": 1,
+            "findings_count": 1,
+            "confirmed_unauth_downloads": 1,
+            "findings": [
+                {
+                    "url": "https://secret.example/api/item?id=secret#fragment",
+                    "method": "GET",
+                    "status_code": 200,
+                    "cors_wildcard": False,
+                    "content_type": "application/json",
+                    "sensitive_data_found": True,
+                    "vrt": "Sensitive Data Exposure",
+                }
+            ],
+            "deep_probe_downloads": [
+                {
+                    "resolved_url": "https://secret.example/file.pdf?token=secret",
+                    "downloaded": True,
+                    "status_code": 200,
+                }
+            ],
+        }
+    )
+    serialized = str(summary)
+    assert summary["target_location"] == "<authorized-target>"
+    assert "/api/item" in serialized
+    assert "secret.example" not in serialized
+    assert "secret" not in serialized
+
+
 def test_deep_probe_rejects_cross_origin_candidates():
     from red_wolf.deep_probe import verify_unauth_download
 
