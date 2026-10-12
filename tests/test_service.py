@@ -431,6 +431,24 @@ def test_redirect_is_not_accessible():
     assert result.classification == "redirect"
 
 
+def test_report_separates_accessible_from_manual_review():
+    from red_wolf.report import build_report_data
+    from red_wolf.scanner import EndpointResult
+
+    result = EndpointResult(
+        url="https://example.com/api/status",
+        method="GET",
+        status_code=200,
+        accessible=True,
+        cors_wildcard=False,
+        classification="accessible",
+    )
+    report = build_report_data("https://example.com", [result])
+    assert report["total_accessible_without_auth"] == 1
+    assert report["findings_count"] == 0
+    assert report["manual_review_candidates"] == 1
+
+
 def test_text_probe_extracts_pdf_references():
     from red_wolf.deep_probe import extract_candidate_file_refs_from_text
 

@@ -463,6 +463,7 @@ def _public_result(
             "status_code": result.status_code,
             "content_type": result.content_type,
             "response_size": result.response_size,
+            "classification": result.classification,
             "verification_status": result.verification_status,
             "confidence": result.confidence,
             "evidence_score": result.evidence_score,

@@ -12,6 +12,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from .scanner import EndpointResult
 
@@ -53,6 +54,7 @@ def build_report_data(
     deep_findings = deep_findings or []
     findings = [r for r in results if r.is_finding()]
     confirmed_downloads = [d for d in deep_findings if d.get("downloaded")]
+    accessible_results = [r for r in results if r.accessible]
     classification_names = (
         "accessible", "capability", "fallback", "redirect",
         "rejected", "error", "budget-exhausted",
@@ -64,8 +66,9 @@ def build_report_data(
         "target_location": base_url,
         "target_category": "Web App",
         "total_endpoints_tested": len(results),
-        "total_accessible_without_auth": len([r for r in results if r.accessible]),
+        "total_accessible_without_auth": len(accessible_results),
         "findings_count": len(findings),
+        "manual_review_candidates": len(accessible_results) - len(findings),
         "confirmed_unauth_downloads": len(confirmed_downloads),
         "classification_counts": {
             name: sum(f.classification == name for f in results)
@@ -133,6 +136,7 @@ def to_markdown(report_data: dict) -> str:
     lines.append(f"| **Endpoints tested** | {report_data['total_endpoints_tested']} |")
     lines.append(f"| **Accessible without auth** | {report_data['total_accessible_without_auth']} |")
     lines.append(f"| **Findings** | {report_data['findings_count']} |")
+    lines.append(f"| **Manual review candidates** | {report_data['manual_review_candidates']} |")
     lines.append(f"| **Confirmed unauth downloads** | {report_data['confirmed_unauth_downloads']} |")
     for name, count in report_data.get("classification_counts", {}).items():
         lines.append(f"| **{name.replace('-', ' ').title()} responses** | {count} |")
