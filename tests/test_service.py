@@ -93,3 +93,29 @@ def test_multiple_service_tokens_have_isolated_tenants(service_module, monkeypat
     with pytest.raises(service_module.HTTPException) as error:
         service_module._require_token("wrong-token")
     assert error.value.status_code == 401
+
+
+def test_job_options_are_bounded_and_configurable(service_module):
+    request = service_module.ScanRequest(
+        target="https://example.com",
+        authorized=True,
+        timeout=30,
+        delay=2,
+        discovery=False,
+        smart_order=False,
+        learning=False,
+        share_learning=True,
+        auto_verify=False,
+        max_response_bytes=2_000_000,
+    )
+    assert request.timeout == 30
+    assert request.delay == 2
+    assert request.discovery is False
+    assert request.max_response_bytes == 2_000_000
+    assert request.share_learning is True
+    with pytest.raises(ValueError):
+        service_module.ScanRequest(
+            target="https://example.com",
+            authorized=True,
+            timeout=61,
+        )

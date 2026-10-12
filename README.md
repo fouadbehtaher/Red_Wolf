@@ -322,7 +322,9 @@ Endpoints:
 - `GET /healthz`
 - `GET /readyz`
 - `POST /v1/jobs`
+- `GET /v1/jobs`
 - `GET /v1/jobs/{job_id}`
+- `GET /v1/jobs/{job_id}/events`
 - `POST /v1/jobs/{job_id}/cancel`
 - `POST /v1/feedback`
 
@@ -331,6 +333,18 @@ prefixes such as `/admin` or `/internal`. Excluded subtrees are skipped by
 both manual/wordlist scanning and discovery. Responses and deep-probe
 downloads are bounded to prevent an authorized scan from consuming
 unbounded memory or storage.
+
+The job API also accepts `timeout`, `delay`, `discovery`, `smart_order`,
+`learning`, `share_learning`, `auto_verify`, and `max_response_bytes`, allowing each authorized
+tenant to choose a conservative quick scan or a slower evidence-focused scan.
+`GET /v1/jobs` lists only the caller's tenant jobs, and the events endpoint
+returns a redacted lifecycle audit trail without target URLs or response data.
+Shared learning is disabled by default for hosted jobs; set `share_learning`
+to `true` only when the tenant explicitly agrees to contribute anonymized
+path-pattern signals.
+
+Copy `.env.example` to `.env.local` for a documented local configuration
+starting point. Never commit the copy or real credentials.
 
 ## Testing
 

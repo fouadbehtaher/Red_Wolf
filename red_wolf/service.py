@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import List, Literal
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from .learning import LearningStore, normalize_path
@@ -213,6 +213,14 @@ class ScanRequest(BaseModel):
     profile: Literal["focused", "balanced", "full", "comprehensive"] = "comprehensive"
     max_discovered: int = Field(default=100, ge=1, le=500)
     excluded_paths: List[str] = Field(default_factory=list, max_length=100)
+    timeout: int = Field(default=10, ge=1, le=60)
+    delay: float = Field(default=0.3, ge=0, le=10)
+    discovery: bool = True
+    smart_order: bool = True
+    learning: bool = True
+    share_learning: bool = False
+    auto_verify: bool = True
+    max_response_bytes: int = Field(default=1_000_000, ge=16_384, le=5_000_000)
 
     @field_validator("methods")
     @classmethod
@@ -314,12 +322,15 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
                 methods=payload["methods"],
                 wordlist_profile=payload["profile"],
                 use_wordlist=True,
-                smart_order=True,
-                discovery=True,
                 max_discovered_paths=payload["max_discovered"],
                 excluded_paths=payload.get("excluded_paths", []),
-                learning=True,
-                auto_verify=True,
+                timeout=payload.get("timeout", 10),
+                delay=payload.get("delay", 0.3),
+                discovery=payload.get("discovery", True),
+                smart_order=payload.get("smart_order", True),
+                learning=payload.get("learning", True),
+                auto_verify=payload.get("auto_verify", True),
+                max_response_bytes=payload.get("max_response_bytes", 1_000_000),
                 learning_namespace=tenant_id,
             )
         )
@@ -331,9 +342,10 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
             ).fetchone()
         if current is None or current["state"] == "cancelled":
             return
-        LearningStore("https://shared.local", "shared").record_shared(
-            (item.url, item.accessible, item.is_finding()) for item in results
-        )
+        if payload.get("share_learning", False):
+            LearningStore("https://shared.local", "shared").record_shared(
+                (item.url, item.accessible, item.is_finding()) for item in results
+            )
         _update_job(
             job_id,
             "completed",
@@ -391,6 +403,14 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
         "profile": request.profile,
         "max_discovered": request.max_discovered,
         "excluded_paths": request.excluded_paths,
+        "timeout": request.timeout,
+        "delay": request.delay,
+        "discovery": request.discovery,
+        "smart_order": request.smart_order,
+        "learning": request.learning,
+        "share_learning": request.share_learning,
+        "auto_verify": request.auto_verify,
+        "max_response_bytes": request.max_response_bytes,
     }
     _save_job(job_id, tenant_id, target, payload)
     _executor.submit(_run_job, job_id, tenant_id, target, payload)
@@ -436,6 +456,63 @@ def get_job(job_id: str, tenant_id: str = Depends(_require_token)) -> dict:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "result": json.loads(row["result_json"]) if row["result_json"] else None,
+    }
+
+
+@app.get("/v1/jobs")
+def list_jobs(
+    tenant_id: str = Depends(_require_token),
+    limit: int = Query(default=25, ge=1, le=100),
+    state: str | None = Query(default=None),
+) -> dict:
+    allowed_states = {"queued", "running", "completed", "failed", "cancelled"}
+    if state is not None and state not in allowed_states:
+        raise HTTPException(400, "Invalid job state")
+    query = (
+        "SELECT job_id, state, created_at, updated_at FROM jobs "
+        "WHERE tenant_id = ?"
+    )
+    params: list[object] = [tenant_id]
+    if state is not None:
+        query += " AND state = ?"
+        params.append(state)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with _connect() as db:
+        rows = db.execute(query, params).fetchall()
+    return {
+        "jobs": [
+            {
+                "job_id": row["job_id"],
+                "state": row["state"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+    }
+
+
+@app.get("/v1/jobs/{job_id}/events")
+def get_job_events(job_id: str, tenant_id: str = Depends(_require_token)) -> dict:
+    with _connect() as db:
+        job = db.execute(
+            "SELECT 1 FROM jobs WHERE job_id = ? AND tenant_id = ?",
+            (job_id, tenant_id),
+        ).fetchone()
+        if job is None:
+            raise HTTPException(404, "Job not found")
+        rows = db.execute(
+            "SELECT event_type, created_at FROM job_events "
+            "WHERE job_id = ? AND tenant_id = ? ORDER BY event_id",
+            (job_id, tenant_id),
+        ).fetchall()
+    return {
+        "job_id": job_id,
+        "events": [
+            {"event_type": row["event_type"], "created_at": row["created_at"]}
+            for row in rows
+        ],
     }
 
 
