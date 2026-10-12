@@ -37,7 +37,7 @@ FILE_NAME_KEYS = {"filename", "file_name", "name"}
 # A crude check: does a string already look like a path/URL to a file
 # with a real extension (pdf, docx, zip, etc.)?
 FILE_EXT_PATTERN = re.compile(
-    r"\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|csv|txt|png|jpe?g|gif|sql|bak|tar|gz)$",
+    r"\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|csv|txt|png|jpe?g|gif|sql|bak|tar|gz)(?:[?#].*)?$",
     re.IGNORECASE,
 )
 
@@ -102,6 +102,16 @@ def extract_candidate_file_refs(json_obj) -> List[str]:
     return combined
 
 
+def extract_candidate_file_refs_from_text(text: str) -> List[str]:
+    """Extract same-document file references from HTML or JavaScript text."""
+    candidates = re.findall(
+        r"""(?:"|')((?:https?://|/|\.?\.?/)[^"'<>\\\s]{1,500}\.(?:pdf|docx?|xlsx?|pptx?|zip)(?:\?[^"'<>\\\s]*)?)(?:"|')""",
+        text,
+        re.IGNORECASE,
+    )
+    return list(dict.fromkeys(candidates))
+
+
 def verify_unauth_download(
     base_url: str,
     candidate: str,
@@ -132,6 +142,8 @@ def verify_unauth_download(
         "size_bytes": 0,
         "notes": "",
         "saved_path": None,
+        "sha256": None,
+        "pdf_detected": False,
     }
     if not _same_origin(base_url, url):
         result["notes"] = "candidate outside the target origin"
@@ -153,6 +165,10 @@ def verify_unauth_download(
             resp.close()
         result["size_bytes"] = min(len(content), max_download_bytes)
         result["downloaded"] = len(content) <= max_download_bytes
+        result["sha256"] = hashlib.sha256(content).hexdigest()
+        result["pdf_detected"] = content.startswith(b"%PDF-") or (
+            "application/pdf" in result["content_type"].lower()
+        )
         if len(content) > max_download_bytes:
             result["notes"] = "download exceeded configured size limit"
         elif save_dir is not None:
@@ -176,9 +192,9 @@ def deep_probe_json_endpoints(
     save_dir: Path | None = None,
 ):
     """
-    Given already-collected EndpointResult objects that look like JSON
-    APIs (content_type contains 'json'), re-fetch the body, extract
-    file references, and attempt unauthenticated downloads on each.
+    Given accessible EndpointResult objects, re-fetch JSON, HTML, and
+    JavaScript bodies, extract file references, and attempt unauthenticated
+    downloads on each.
 
     Returns a list of dicts: one per confirmed-or-attempted download,
     tagged with which endpoint it came from.
@@ -187,8 +203,6 @@ def deep_probe_json_endpoints(
     seen_resolved_urls = {}  # resolved_url -> index into deep_findings, for de-dup across endpoints
 
     for ep in candidate_results:
-        if "json" not in (ep.content_type or "").lower():
-            continue
         if not ep.accessible:
             continue
 
@@ -208,11 +222,15 @@ def deep_probe_json_endpoints(
                 resp.close()
             if len(body) > scanner.config.max_response_bytes:
                 continue
-            data = json.loads(body.decode(resp.encoding or "utf-8", errors="replace"))
+            text = body.decode(resp.encoding or "utf-8", errors="replace")
+            if "json" in (ep.content_type or "").lower():
+                candidates = extract_candidate_file_refs(json.loads(text))
+            else:
+                candidates = extract_candidate_file_refs_from_text(text)
         except (requests.RequestException, ValueError, UnicodeError):
             continue
 
-        candidates = extract_candidate_file_refs(data)[:max_files_per_endpoint]
+        candidates = candidates[:max_files_per_endpoint]
         for candidate in candidates:
             # Resolve first so we can de-dup identical targets found via
             # multiple endpoints (e.g. both /search and /item/{id} point

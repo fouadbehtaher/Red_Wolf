@@ -362,6 +362,8 @@ def test_public_result_includes_redacted_deep_probe_downloads(service_module):
                 "status_code": 200,
                 "content_type": "application/pdf",
                 "size_bytes": 128,
+                "sha256": "a" * 64,
+                "pdf_detected": True,
                 "saved_path": "red_wolf_downloads/job/report.pdf",
             }
         ],
@@ -369,8 +371,51 @@ def test_public_result_includes_redacted_deep_probe_downloads(service_module):
     serialized = str(public)
     assert public["confirmed_unauth_downloads"] == 1
     assert public["deep_probe_downloads"][0]["path"] == "files/report.pdf"
+    assert public["deep_probe_downloads"][0]["pdf_detected"] is True
+    assert len(public["deep_probe_downloads"][0]["sha256"]) == 64
     assert "?token=" not in serialized
     assert "secret" not in serialized
+
+
+def test_text_probe_extracts_pdf_references():
+    from red_wolf.deep_probe import extract_candidate_file_refs_from_text
+
+    refs = extract_candidate_file_refs_from_text(
+        '<a href="/docs/report.pdf?download=1">PDF</a>'
+        '<script>const x = "../files/guide.docx";</script>'
+    )
+    assert refs == ["/docs/report.pdf?download=1", "../files/guide.docx"]
+
+
+def test_download_verification_records_pdf_evidence(monkeypatch, tmp_path):
+    from red_wolf import deep_probe
+
+    class Raw:
+        def read(self, _limit):
+            return b"%PDF-1.7\nproof"
+
+    class Response:
+        status_code = 200
+        headers = {"Content-Type": "application/pdf"}
+        raw = Raw()
+
+        def close(self):
+            pass
+
+    class Session:
+        def get(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(deep_probe.requests, "Session", lambda: Session())
+    result = deep_probe.verify_unauth_download(
+        "https://example.com",
+        "/docs/proof.pdf",
+        save_dir=tmp_path,
+    )
+    assert result["downloaded"] is True
+    assert result["pdf_detected"] is True
+    assert result["sha256"]
+    assert Path(result["saved_path"]).read_bytes().startswith(b"%PDF-")
 
 
 def test_metrics_are_authenticated_and_expose_job_states(service_module):

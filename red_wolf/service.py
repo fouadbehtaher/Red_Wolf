@@ -476,6 +476,8 @@ def _public_result(
                 "status_code": item.get("status_code"),
                 "content_type": item.get("content_type"),
                 "size_bytes": item.get("size_bytes", 0),
+                "sha256": item.get("sha256"),
+                "pdf_detected": item.get("pdf_detected", False),
                 "notes": item.get("notes", ""),
                 "saved_path": item.get("saved_path"),
             }

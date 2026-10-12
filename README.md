@@ -141,8 +141,11 @@ sitemaps, API descriptions, HTML, and JavaScript discovery; the remaining
 budget is reserved for testing the base target and discovered/wordlist paths.
 
 The hosted API accepts `deep_probe: true` to re-fetch accessible JSON
-responses, extract same-origin file references, and verify unauthenticated
-downloads. Add `save_downloads: true` only when you explicitly need local
+responses, HTML, and JavaScript, extract same-origin file references, and
+verify unauthenticated downloads. PDF evidence is additionally checked for
+the `%PDF-` signature (or an `application/pdf` response type), and records
+the bounded size and SHA-256 digest. Add `save_downloads: true` only when
+you explicitly need local
 evidence files; saved bytes are bounded by `max_response_bytes` and placed
 under `RED_WOLF_DOWNLOAD_DIR/<job_id>`. Saving is disabled by default, and
 job results retain paths and metadata rather than target hostnames or query
