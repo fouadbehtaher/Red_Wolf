@@ -160,6 +160,31 @@ def test_scanner_honors_cooperative_cancellation(monkeypatch):
     assert len(results) == 1
 
 
+def test_scanner_delay_is_interruptible(monkeypatch):
+    from red_wolf.scanner import EndpointResult, ScanConfig, UnauthAccessScanner
+
+    stopped = False
+    sleeps = []
+    scanner = UnauthAccessScanner(
+        ScanConfig(
+            base_url="https://example.com",
+            use_wordlist=False,
+            learning=False,
+            delay=1,
+            should_stop=lambda: stopped,
+        )
+    )
+
+    def fake_sleep(seconds):
+        nonlocal stopped
+        sleeps.append(seconds)
+        stopped = True
+
+    monkeypatch.setattr("red_wolf.scanner.time.sleep", fake_sleep)
+    assert scanner._wait_between_requests() is False
+    assert sleeps == [0.1]
+
+
 def test_cli_parser_exposes_scope_and_response_limits():
     from red_wolf.cli import build_arg_parser
 

@@ -493,6 +493,17 @@ class UnauthAccessScanner:
 
     # ---- orchestration -------------------------------------------------------
 
+    def _wait_between_requests(self) -> bool:
+        """Wait politely while allowing a running job to stop promptly."""
+        remaining = self.config.delay
+        while remaining > 0:
+            if self.config.should_stop and self.config.should_stop():
+                return False
+            interval = min(0.1, remaining)
+            time.sleep(interval)
+            remaining -= interval
+        return not (self.config.should_stop and self.config.should_stop())
+
     def run(self, progress_callback: Optional[Callable[[int, int, str, str], None]] = None) -> List[EndpointResult]:
         """
         Run the full scan: build target list, hit each one (politely,
@@ -522,10 +533,9 @@ class UnauthAccessScanner:
                 if self.config.should_stop and self.config.should_stop():
                     self.results = results
                     return results
-                if self.config.delay and not (
-                    self.config.should_stop and self.config.should_stop()
-                ):
-                    time.sleep(self.config.delay)
+                if self.config.delay and not self._wait_between_requests():
+                    self.results = results
+                    return results
             if completed >= total:
                 break
         self.results = results
