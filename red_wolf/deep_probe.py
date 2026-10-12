@@ -18,7 +18,7 @@ with zero authentication.
 
 import re
 from typing import List, Set
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -37,6 +37,17 @@ FILE_EXT_PATTERN = re.compile(
     r"\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|csv|txt|png|jpe?g|gif|sql|bak|tar|gz)$",
     re.IGNORECASE,
 )
+
+
+def _same_origin(base_url: str, candidate_url: str) -> bool:
+    base = urlparse(base_url)
+    candidate = urlparse(candidate_url)
+    return (
+        candidate.scheme in {"http", "https"}
+        and candidate.hostname is not None
+        and candidate.hostname.lower() == (base.hostname or "").lower()
+        and candidate.port == base.port
+    )
 
 
 def _walk(obj, found_urls: Set[str], found_names: List[str]):
@@ -88,7 +99,12 @@ def extract_candidate_file_refs(json_obj) -> List[str]:
     return combined
 
 
-def verify_unauth_download(base_url: str, candidate: str, timeout: int = 10):
+def verify_unauth_download(
+    base_url: str,
+    candidate: str,
+    timeout: int = 10,
+    max_download_bytes: int = 5_000_000,
+):
     """
     Try to actually fetch a candidate file reference with a clean,
     unauthenticated session (same discipline as scanner._fresh_session).
@@ -112,6 +128,9 @@ def verify_unauth_download(base_url: str, candidate: str, timeout: int = 10):
         "size_bytes": 0,
         "notes": "",
     }
+    if not _same_origin(base_url, url):
+        result["notes"] = "candidate outside the target origin"
+        return result
 
     try:
         resp = session.get(url, timeout=timeout, allow_redirects=False, stream=True)
@@ -123,9 +142,14 @@ def verify_unauth_download(base_url: str, candidate: str, timeout: int = 10):
     result["content_type"] = resp.headers.get("Content-Type", "")
 
     if resp.status_code in (200, 206):
-        content = resp.content  # safe for report-sized files; caller can stream separately if huge
-        result["size_bytes"] = len(content)
-        result["downloaded"] = True
+        try:
+            content = resp.raw.read(max_download_bytes + 1)
+        finally:
+            resp.close()
+        result["size_bytes"] = min(len(content), max_download_bytes)
+        result["downloaded"] = len(content) <= max_download_bytes
+        if len(content) > max_download_bytes:
+            result["notes"] = "download exceeded configured size limit"
     else:
         result["notes"] = f"not downloadable without auth (status {resp.status_code})"
 
@@ -166,6 +190,8 @@ def deep_probe_json_endpoints(scanner, candidate_results, max_files_per_endpoint
             # to the same attachment) instead of downloading it N times.
             from urllib.parse import urljoin
             resolved = candidate if candidate.startswith("http") else urljoin(scanner.config.base_url, candidate.lstrip("/"))
+            if not _same_origin(scanner.config.base_url, resolved):
+                continue
 
             if resolved in seen_resolved_urls:
                 existing = deep_findings[seen_resolved_urls[resolved]]
@@ -173,7 +199,12 @@ def deep_probe_json_endpoints(scanner, candidate_results, max_files_per_endpoint
                     existing["source_endpoints"].append(ep.url)
                 continue
 
-            verification = verify_unauth_download(scanner.config.base_url, candidate, scanner.config.timeout)
+            verification = verify_unauth_download(
+                scanner.config.base_url,
+                candidate,
+                scanner.config.timeout,
+                scanner.config.max_response_bytes,
+            )
             verification["source_endpoints"] = [ep.url]
             seen_resolved_urls[resolved] = len(deep_findings)
             deep_findings.append(verification)

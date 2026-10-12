@@ -42,3 +42,43 @@ def test_job_quota_counts_recent_jobs(service_module):
     with pytest.raises(service_module.HTTPException) as error:
         service_module._check_job_quota("tenant-a")
     assert error.value.status_code == 429
+
+
+def test_scope_exclusions_are_relative_and_normalized(service_module):
+    request = service_module.ScanRequest(
+        target="https://example.com",
+        authorized=True,
+        excluded_paths=["/admin/", "/private"],
+    )
+    assert request.excluded_paths == ["/admin", "/private"]
+    with pytest.raises(ValueError):
+        service_module.ScanRequest(
+            target="https://example.com",
+            authorized=True,
+            excluded_paths=["https://other.example"],
+        )
+
+
+def test_scanner_excludes_path_subtrees():
+    from red_wolf.scanner import ScanConfig, UnauthAccessScanner
+
+    scanner = UnauthAccessScanner(
+        ScanConfig(
+            base_url="https://example.com",
+            endpoints=["admin", "admin/users", "public"],
+            use_wordlist=False,
+            excluded_paths=["/admin"],
+        )
+    )
+    assert scanner._build_target_list() == ["public"]
+
+
+def test_deep_probe_rejects_cross_origin_candidates():
+    from red_wolf.deep_probe import verify_unauth_download
+
+    result = verify_unauth_download(
+        "https://example.com",
+        "https://other.example/file.pdf",
+    )
+    assert result["downloaded"] is False
+    assert "outside the target origin" in result["notes"]

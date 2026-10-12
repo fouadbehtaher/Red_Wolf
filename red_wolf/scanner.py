@@ -104,6 +104,8 @@ class ScanConfig:
     auto_verify: bool = True
     verification_attempts: int = 2
     learning_namespace: str = ""
+    excluded_paths: List[str] = field(default_factory=list)
+    max_response_bytes: int = 1_000_000
 
 
 class UnauthAccessScanner:
@@ -155,6 +157,8 @@ class UnauthAccessScanner:
         seen = set()
         ordered = []
         for p in manual + wordlist_targets:
+            if self._is_excluded(p):
+                continue
             if p not in seen:
                 seen.add(p)
                 ordered.append(p)
@@ -164,6 +168,13 @@ class UnauthAccessScanner:
                 reverse=True,
             )
         return ordered
+
+    def _is_excluded(self, path: str) -> bool:
+        candidate = "/" + path.lstrip("/")
+        return any(
+            candidate == excluded or candidate.startswith(excluded.rstrip("/") + "/")
+            for excluded in ("/" + item.lstrip("/") for item in self.config.excluded_paths)
+        )
 
     def _learned_path_score(self, path: str) -> float:
         if not self.learning_store:
@@ -199,7 +210,12 @@ class UnauthAccessScanner:
             if parsed.query:
                 path += "?" + parsed.query
             normalized = path.lstrip("/")
-            if normalized and normalized not in seen and len(discovered) < self.config.max_discovered_paths:
+            if (
+                normalized
+                and not self._is_excluded(normalized)
+                and normalized not in seen
+                and len(discovered) < self.config.max_discovered_paths
+            ):
                 seen.add(normalized)
                 discovered.append(normalized)
 
@@ -213,6 +229,7 @@ class UnauthAccessScanner:
                     headers={"User-Agent": self.config.user_agent},
                     timeout=self.config.timeout,
                     allow_redirects=False,
+                    stream=True,
                 )
             except (requests.RequestException, TimeoutError, OSError):
                 continue
@@ -221,7 +238,13 @@ class UnauthAccessScanner:
             documents_read += 1
 
             content_type = response.headers.get("Content-Type", "").lower()
-            body = response.text[:self.config.max_javascript_bytes]
+            try:
+                body_bytes = response.raw.read(self.config.max_javascript_bytes + 1)
+            finally:
+                response.close()
+            body = body_bytes[:self.config.max_javascript_bytes].decode(
+                response.encoding or "utf-8", errors="replace"
+            )
             if seed == "robots.txt":
                 for line in body.splitlines():
                     if line.lower().startswith(("allow:", "disallow:")):
@@ -268,12 +291,19 @@ class UnauthAccessScanner:
                     headers={"User-Agent": self.config.user_agent},
                     timeout=self.config.timeout,
                     allow_redirects=False,
+                    stream=True,
                 )
             except (requests.RequestException, TimeoutError, OSError):
                 continue
             if response.status_code != 200:
                 continue
-            script_body = response.text[:self.config.max_javascript_bytes]
+            try:
+                script_bytes = response.raw.read(self.config.max_javascript_bytes + 1)
+            finally:
+                response.close()
+            script_body = script_bytes[:self.config.max_javascript_bytes].decode(
+                response.encoding or "utf-8", errors="replace"
+            )
             for candidate in re.findall(
                 r"""["']((?:/|https?://)[^"'<>\\\s]{2,200})["']""",
                 script_body,
@@ -301,6 +331,14 @@ class UnauthAccessScanner:
         session.trust_env = False  # ignore any auth from env vars / netrc
         return session
 
+    def _read_response(self, response: requests.Response) -> tuple[bytes, bool]:
+        limit = max(1, self.config.max_response_bytes)
+        try:
+            body = response.raw.read(limit + 1)
+        finally:
+            response.close()
+        return body[:limit], len(body) > limit
+
     def test_endpoint(self, path: str, method: str = "GET") -> EndpointResult:
         session = self._fresh_session()
         url = urljoin(self.config.base_url.rstrip("/") + "/", path)
@@ -314,6 +352,7 @@ class UnauthAccessScanner:
                 headers=headers,
                 timeout=self.config.timeout,
                 allow_redirects=False,  # a redirect to /login is NOT "accessible"
+                stream=True,
             )
         except (requests.RequestException, TimeoutError, OSError) as exc:
             return EndpointResult(
@@ -324,6 +363,7 @@ class UnauthAccessScanner:
             )
 
         elapsed_ms = int((time.time() - start) * 1000)
+        body, truncated = self._read_response(resp)
 
         cors_header = resp.headers.get("Access-Control-Allow-Origin", "")
         cors_wildcard = cors_header.strip() == "*"
@@ -337,7 +377,7 @@ class UnauthAccessScanner:
         evidence_reasons: List[str] = []
         if accessible:
             try:
-                body_preview = resp.text[:3000] if resp.text else ""
+                body_preview = body.decode(resp.encoding or "utf-8", errors="replace")[:3000]
             except Exception:
                 body_preview = ""
             snippet = body_preview[:300].replace("\n", " ")
@@ -364,13 +404,15 @@ class UnauthAccessScanner:
             accessible=accessible,
             cors_wildcard=cors_wildcard,
             content_type=resp.headers.get("Content-Type", ""),
-            response_size=len(resp.content) if resp.content else 0,
+            response_size=len(body),
             sensitive_data_found=sensitive,
             sample_snippet=snippet,
             elapsed_ms=elapsed_ms,
             evidence_score=min(evidence_score, 100),
             evidence_reasons=evidence_reasons,
         )
+        if truncated:
+            result.notes = f"response truncated at {self.config.max_response_bytes} bytes"
         if self.config.auto_verify and result.is_candidate_for_verification():
             self._verify_result(result, path, method)
         return result
@@ -400,11 +442,13 @@ class UnauthAccessScanner:
                     headers={"User-Agent": self.config.user_agent},
                     timeout=self.config.timeout,
                     allow_redirects=False,
+                    stream=True,
                 )
             except (requests.RequestException, TimeoutError, OSError):
                 continue
             statuses.append(response.status_code)
-            fingerprints.append(self._response_fingerprint(response))
+            body, _ = self._read_response(response)
+            fingerprints.append(hashlib.sha256(body[:8192]).hexdigest())
 
         if not statuses:
             result.verification_status = "unverified"

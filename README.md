@@ -323,6 +323,12 @@ Endpoints:
 - `POST /v1/jobs/{job_id}/cancel`
 - `POST /v1/feedback`
 
+Job requests may include `excluded_paths`, an array of relative path
+prefixes such as `/admin` or `/internal`. Excluded subtrees are skipped by
+both manual/wordlist scanning and discovery. Responses and deep-probe
+downloads are bounded to prevent an authorized scan from consuming
+unbounded memory or storage.
+
 ## Testing
 
 Run the focused service safety tests with:

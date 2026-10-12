@@ -201,6 +201,7 @@ class ScanRequest(BaseModel):
     methods: List[str] = Field(default_factory=lambda: ["GET", "HEAD", "OPTIONS"])
     profile: Literal["focused", "balanced", "full", "comprehensive"] = "comprehensive"
     max_discovered: int = Field(default=100, ge=1, le=500)
+    excluded_paths: List[str] = Field(default_factory=list, max_length=100)
 
     @field_validator("methods")
     @classmethod
@@ -209,6 +210,21 @@ class ScanRequest(BaseModel):
         if not methods or any(item not in {"GET", "HEAD", "OPTIONS"} for item in methods):
             raise ValueError("Service scans only GET, HEAD, and OPTIONS")
         return methods
+
+    @field_validator("excluded_paths")
+    @classmethod
+    def relative_exclusions(cls, value: List[str]) -> List[str]:
+        cleaned = []
+        for item in value:
+            path = item.strip()
+            if not path.startswith("/") or "://" in path or any(
+                char in path for char in "\r\n"
+            ):
+                raise ValueError("Excluded paths must be relative URL paths")
+            normalized = "/" + path.strip("/")
+            if normalized != "/" and normalized not in cleaned:
+                cleaned.append(normalized)
+        return cleaned
 
 
 class FeedbackRequest(BaseModel):
@@ -290,6 +306,7 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
                 smart_order=True,
                 discovery=True,
                 max_discovered_paths=payload["max_discovered"],
+                excluded_paths=payload.get("excluded_paths", []),
                 learning=True,
                 auto_verify=True,
                 learning_namespace=tenant_id,
@@ -362,6 +379,7 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
         "methods": request.methods,
         "profile": request.profile,
         "max_discovered": request.max_discovered,
+        "excluded_paths": request.excluded_paths,
     }
     _save_job(job_id, tenant_id, target, payload)
     _executor.submit(_run_job, job_id, tenant_id, target, payload)
