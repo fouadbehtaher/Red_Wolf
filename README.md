@@ -321,6 +321,7 @@ Endpoints:
 
 - `GET /healthz`
 - `GET /readyz`
+- `GET /metrics`
 - `POST /v1/jobs`
 - `GET /v1/jobs`
 - `GET /v1/jobs/{job_id}`
@@ -342,6 +343,10 @@ returns a redacted lifecycle audit trail without target URLs or response data.
 Shared learning is disabled by default for hosted jobs; set `share_learning`
 to `true` only when the tenant explicitly agrees to contribute anonymized
 path-pattern signals.
+
+`/metrics` is protected by the service token and returns Prometheus-compatible
+job-state gauges. Jobs and their audit events older than
+`RED_WOLF_RETENTION_DAYS` (default 30) are removed at service startup.
 
 Copy `.env.example` to `.env.local` for a documented local configuration
 starting point. Never commit the copy or real credentials.

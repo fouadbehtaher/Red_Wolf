@@ -119,3 +119,31 @@ def test_job_options_are_bounded_and_configurable(service_module):
             authorized=True,
             timeout=61,
         )
+
+
+def test_metrics_are_authenticated_and_expose_job_states(service_module):
+    service_module._save_job(
+        "metrics-job",
+        service_module._token_tenant("test-token"),
+        "https://example.com",
+        {"methods": ["GET"], "profile": "focused", "max_discovered": 1},
+    )
+    response = service_module.metrics(service_module._token_tenant("test-token"))
+    assert response.media_type == "text/plain; version=0.0.4"
+    assert 'red_wolf_jobs_total{state="queued"} 1' in response.body.decode()
+
+
+def test_retention_cleanup_removes_old_jobs(service_module, monkeypatch):
+    monkeypatch.setenv("RED_WOLF_RETENTION_DAYS", "1")
+    service_module._save_job(
+        "old-job",
+        "tenant-a",
+        "https://example.com",
+        {"methods": ["GET"], "profile": "focused", "max_discovered": 1},
+    )
+    with service_module._connect() as db:
+        db.execute(
+            "UPDATE jobs SET created_at = ? WHERE job_id = ?",
+            ("2000-01-01T00:00:00+00:00", "old-job"),
+        )
+    assert service_module._cleanup_expired_jobs() == 1

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import List, Literal
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from .learning import LearningStore, normalize_path
@@ -34,6 +34,7 @@ from .scanner import ScanConfig, UnauthAccessScanner
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
     _recover_interrupted_jobs()
+    _cleanup_expired_jobs()
     yield
 
 
@@ -122,6 +123,39 @@ def _recover_interrupted_jobs() -> None:
                 "VALUES (?, ?, ?, ?)",
                 (row["job_id"], row["tenant_id"], "service_restarted", now),
             )
+
+
+def _retention_days() -> int:
+    try:
+        return max(1, int(os.environ.get("RED_WOLF_RETENTION_DAYS", "30")))
+    except ValueError as exc:
+        raise RuntimeError("RED_WOLF_RETENTION_DAYS must be an integer") from exc
+
+
+def _cleanup_expired_jobs() -> int:
+    cutoff = datetime.now(timezone.utc).timestamp() - (_retention_days() * 86400)
+    deleted = 0
+    with _connect() as db:
+        rows = db.execute("SELECT job_id, created_at FROM jobs").fetchall()
+        expired = []
+        for row in rows:
+            try:
+                is_expired = datetime.fromisoformat(row["created_at"]).timestamp() < cutoff
+            except ValueError:
+                is_expired = False
+            if is_expired:
+                expired.append(row["job_id"])
+        for job_id in expired:
+            db.execute("DELETE FROM job_events WHERE job_id = ?", (job_id,))
+            db.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+        deleted = len(expired)
+    return deleted
+
+
+def _job_counts() -> dict[str, int]:
+    with _connect() as db:
+        rows = db.execute("SELECT state, COUNT(*) AS count FROM jobs GROUP BY state").fetchall()
+    return {row["state"]: row["count"] for row in rows}
 
 
 def _token_tenant(token: str) -> str:
@@ -353,6 +387,13 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
             tenant_id,
         )
     except Exception as exc:
+        with _connect() as db:
+            current = db.execute(
+                "SELECT state FROM jobs WHERE job_id = ? AND tenant_id = ?",
+                (job_id, tenant_id),
+            ).fetchone()
+        if current is None or current["state"] == "cancelled":
+            return
         _update_job(
             job_id,
             "failed",
@@ -364,6 +405,21 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "red-wolf", "version": app.version}
+
+
+@app.get("/metrics", response_class=Response)
+def metrics(_: str = Depends(_require_token)) -> Response:
+    counts = _job_counts()
+    lines = [
+        "# HELP red_wolf_jobs_total Jobs currently retained by state.",
+        "# TYPE red_wolf_jobs_total gauge",
+    ]
+    for state in ("queued", "running", "completed", "failed", "cancelled"):
+        lines.append(f'red_wolf_jobs_total{{state="{state}"}} {counts.get(state, 0)}')
+    lines.append(
+        f"red_wolf_workers_configured {int(os.environ.get('RED_WOLF_WORKERS', '2'))}"
+    )
+    return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 
 @app.get("/readyz")
