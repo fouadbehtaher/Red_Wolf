@@ -1,4 +1,5 @@
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -28,6 +29,20 @@ def test_service_integer_settings_fail_with_actionable_errors(service_module, mo
     monkeypatch.setenv("RED_WOLF_JOB_WINDOW_SECONDS", "0")
     with pytest.raises(RuntimeError, match="RED_WOLF_JOB_WINDOW_SECONDS must be at least 1"):
         service_module._positive_env_int("RED_WOLF_JOB_WINDOW_SECONDS", 3600)
+
+
+def test_shutdown_requests_cancellation_for_active_workers(service_module):
+    first = threading.Event()
+    second = threading.Event()
+    with service_module._cancel_events_lock:
+        service_module._cancel_events.update(
+            {"active-one": first, "active-two": second}
+        )
+    service_module._request_worker_shutdown()
+    assert first.is_set()
+    assert second.is_set()
+    with service_module._cancel_events_lock:
+        service_module._cancel_events.clear()
 
 
 def test_target_requires_allowlisted_https_host(service_module):

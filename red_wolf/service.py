@@ -40,6 +40,7 @@ async def _lifespan(_: FastAPI):
     try:
         yield
     finally:
+        _request_worker_shutdown()
         _executor.shutdown(wait=False, cancel_futures=True)
 
 
@@ -72,6 +73,14 @@ _cancel_events_lock = threading.Lock()
 
 def _db_path() -> Path:
     return Path(os.environ.get("RED_WOLF_SERVICE_DB", "red_wolf_service.db")).expanduser()
+
+
+def _request_worker_shutdown() -> None:
+    """Stop active scans before the executor rejects further work."""
+    with _cancel_events_lock:
+        events = list(_cancel_events.values())
+    for event in events:
+        event.set()
 
 
 def _connect() -> sqlite3.Connection:

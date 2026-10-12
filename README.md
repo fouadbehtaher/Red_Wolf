@@ -370,6 +370,8 @@ job-state gauges. Jobs and their audit events older than
 they are in a terminal state (`completed`, `failed`, or `cancelled`); active
 `queued` and `running` jobs are preserved.
 Shutdown also stops accepting new work and cancels queued executor futures.
+Active scans receive a cooperative stop signal before the executor shuts down;
+the in-flight request still follows its configured timeout.
 If a worker cannot be scheduled, the job is marked `failed` with a redacted
 `worker_unavailable` error instead of remaining indefinitely in `queued`.
 
