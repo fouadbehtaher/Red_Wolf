@@ -423,6 +423,8 @@ def test_cancelled_queued_job_is_not_started(service_module):
     )
     job = service_module.get_job("cancel-before-start", tenant_id)
     assert job["state"] == "cancelled"
+    with service_module._cancel_events_lock:
+        assert "cancel-before-start" not in service_module._cancel_events
 
 
 def test_worker_submit_failure_marks_job_failed(service_module, monkeypatch):

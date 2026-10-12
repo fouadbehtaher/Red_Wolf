@@ -465,11 +465,11 @@ def _public_result(scanner: UnauthAccessScanner, results: list) -> dict:
 
 
 def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
-    if not _mark_job_running(job_id, tenant_id):
-        return
     with _cancel_events_lock:
         cancel_event = _cancel_events.setdefault(job_id, threading.Event())
     try:
+        if not _mark_job_running(job_id, tenant_id):
+            return
         scanner = UnauthAccessScanner(
             ScanConfig(
                 base_url=target,
