@@ -30,6 +30,15 @@ def test_target_requires_allowlisted_https_host(service_module):
         service_module._validate_target("https://not-allowed.example")
     assert error.value.status_code == 403
 
+    for invalid in (
+        "https://user:pass@example.com",
+        "https://example.com/#fragment",
+        "https://example.com:bad",
+    ):
+        with pytest.raises(service_module.HTTPException) as error:
+            service_module._validate_target(invalid)
+        assert error.value.status_code == 400
+
 
 def test_job_quota_counts_recent_jobs(service_module):
     service_module._save_job(
@@ -71,6 +80,19 @@ def test_scanner_excludes_path_subtrees():
         )
     )
     assert scanner._build_target_list() == ["public"]
+
+
+def test_scanner_rejects_external_endpoint_urls():
+    from red_wolf.scanner import ScanConfig, UnauthAccessScanner
+
+    scanner = UnauthAccessScanner(
+        ScanConfig(
+            base_url="https://example.com",
+            endpoints=["https://other.example/secret", "/api"],
+            use_wordlist=False,
+        )
+    )
+    assert scanner._build_target_list() == ["api"]
 
 
 def test_deep_probe_rejects_cross_origin_candidates():

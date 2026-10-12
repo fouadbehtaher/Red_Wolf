@@ -215,6 +215,12 @@ def _validate_target(target: str) -> str:
     allowed = _allowed_hosts()
     if parsed.scheme != "https" or not parsed.hostname:
         raise HTTPException(400, "Only HTTPS targets are accepted")
+    if parsed.username or parsed.password or parsed.fragment:
+        raise HTTPException(400, "Target must not contain credentials or a fragment")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise HTTPException(400, "Target port is invalid") from exc
     if not allowed or parsed.hostname.lower() not in allowed:
         raise HTTPException(403, "Target is not in the server allowlist")
     addresses = _resolved_addresses(parsed.hostname)

@@ -157,7 +157,7 @@ class UnauthAccessScanner:
         seen = set()
         ordered = []
         for p in manual + wordlist_targets:
-            if self._is_excluded(p):
+            if not self._is_same_origin(p) or self._is_excluded(p):
                 continue
             if p not in seen:
                 seen.add(p)
@@ -168,6 +168,15 @@ class UnauthAccessScanner:
                 reverse=True,
             )
         return ordered
+
+    def _is_same_origin(self, path: str) -> bool:
+        base = urlparse(self.config.base_url)
+        candidate = urlparse(urljoin(self.config.base_url.rstrip("/") + "/", path))
+        return (
+            candidate.scheme == base.scheme
+            and candidate.hostname == base.hostname
+            and candidate.port == base.port
+        )
 
     def _is_excluded(self, path: str) -> bool:
         candidate = "/" + path.lstrip("/")

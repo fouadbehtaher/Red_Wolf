@@ -345,6 +345,10 @@ Shared learning is disabled by default for hosted jobs; set `share_learning`
 to `true` only when the tenant explicitly agrees to contribute anonymized
 path-pattern signals.
 
+The scanner rejects absolute manual or wordlist endpoints that resolve outside
+the configured target origin. Hosted targets also reject embedded credentials,
+fragments, invalid ports, non-HTTPS schemes, and hosts outside the allowlist.
+
 `/metrics` is protected by the service token and returns Prometheus-compatible
 job-state gauges. Jobs and their audit events older than
 `RED_WOLF_RETENTION_DAYS` (default 30) are removed at service startup.

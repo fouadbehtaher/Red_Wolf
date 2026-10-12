@@ -16,6 +16,7 @@ them back into the scanner to verify they're really downloadable
 with zero authentication.
 """
 
+import json
 import re
 from typing import List, Set
 from urllib.parse import urljoin, urlparse
@@ -178,9 +179,20 @@ def deep_probe_json_endpoints(scanner, candidate_results, max_files_per_endpoint
         session = requests.Session()
         session.trust_env = False
         try:
-            resp = session.get(ep.url, timeout=scanner.config.timeout, allow_redirects=False)
-            data = resp.json()
-        except Exception:
+            resp = session.get(
+                ep.url,
+                timeout=scanner.config.timeout,
+                allow_redirects=False,
+                stream=True,
+            )
+            try:
+                body = resp.raw.read(scanner.config.max_response_bytes + 1)
+            finally:
+                resp.close()
+            if len(body) > scanner.config.max_response_bytes:
+                continue
+            data = json.loads(body.decode(resp.encoding or "utf-8", errors="replace"))
+        except (requests.RequestException, ValueError, UnicodeError):
             continue
 
         candidates = extract_candidate_file_refs(data)[:max_files_per_endpoint]
