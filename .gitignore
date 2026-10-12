@@ -8,4 +8,6 @@ venv/
 .env
 red_wolf_report.*
 reports/
-
+build/
+dist/
+*.egg-info/

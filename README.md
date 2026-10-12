@@ -317,6 +317,7 @@ per-user authentication.
 Endpoints:
 
 - `GET /healthz`
+- `GET /readyz`
 - `POST /v1/jobs`
 - `GET /v1/jobs/{job_id}`
 - `POST /v1/jobs/{job_id}/cancel`
@@ -333,6 +334,9 @@ python -m pytest tests -q
 The suite covers blocked network addresses, HTTPS and allowlist validation,
 and tenant job quotas. Add a local mock target before exercising the scanner
 itself; never use a public target as a test fixture.
+
+`/healthz` is a liveness check. `/readyz` additionally requires service
+authentication and at least one configured target host.
 
 ```bash
 python test_vuln_app.py &
@@ -354,5 +358,9 @@ python -m red_wolf.cli --url http://127.0.0.1:5055 \
   paths via `--custom-wordlist` per target instead of hardcoding them.
 - This tool does not enforce platform scope itself — confirming scope
   is on you before you run it.
+- The SQLite worker recovers safely after a restart by marking interrupted
+  jobs as failed with a `service_restarted` audit event. It does not resume
+  interrupted scans; use a durable queue for multi-process or high-volume
+  deployments.
 - The AI module sends only a trimmed JSON summary (URLs, status codes,
   flags) to the provider you choose — never raw file contents.

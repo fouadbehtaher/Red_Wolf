@@ -16,6 +16,7 @@ import secrets
 import sqlite3
 import socket
 import uuid
+from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,10 +30,18 @@ from .learning import LearningStore, normalize_path
 from .scanner import ScanConfig, UnauthAccessScanner
 
 
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    _recover_interrupted_jobs()
+    yield
+
+
 app = FastAPI(
     title="Red Wolf",
     version="1.1.0",
     description="Privacy-first authorized reconnaissance service.",
+    lifespan=_lifespan,
 )
 _executor = ThreadPoolExecutor(max_workers=int(os.environ.get("RED_WOLF_WORKERS", "2")))
 _MAX_JOBS_PER_WINDOW = int(os.environ.get("RED_WOLF_MAX_JOBS_PER_WINDOW", "5"))
@@ -81,6 +90,38 @@ def _connect() -> sqlite3.Connection:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _record_event(
+    job_id: str,
+    tenant_id: str,
+    event_type: str,
+) -> None:
+    with _connect() as db:
+        db.execute(
+            "INSERT INTO job_events (job_id, tenant_id, event_type, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (job_id, tenant_id, event_type, _now()),
+        )
+
+
+def _recover_interrupted_jobs() -> None:
+    with _connect() as db:
+        rows = db.execute(
+            "SELECT job_id, tenant_id FROM jobs WHERE state IN ('queued', 'running')"
+        ).fetchall()
+        now = _now()
+        db.execute(
+            "UPDATE jobs SET state = 'failed', updated_at = ?, "
+            "result_json = ? WHERE state IN ('queued', 'running')",
+            (now, json.dumps({"error": "service_restarted"})),
+        )
+        for row in rows:
+            db.execute(
+                "INSERT INTO job_events (job_id, tenant_id, event_type, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (row["job_id"], row["tenant_id"], "service_restarted", now),
+            )
 
 
 def _token_tenant(token: str) -> str:
@@ -186,14 +227,30 @@ def _save_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
             "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (job_id, tenant_id, "queued", now, now, fingerprint, json.dumps(payload), None),
         )
+        db.execute(
+            "INSERT INTO job_events (job_id, tenant_id, event_type, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (job_id, tenant_id, "queued", now),
+        )
 
 
-def _update_job(job_id: str, state: str, result: dict | None = None) -> None:
+def _update_job(
+    job_id: str,
+    state: str,
+    result: dict | None = None,
+    tenant_id: str | None = None,
+) -> None:
     with _connect() as db:
         db.execute(
             "UPDATE jobs SET state = ?, updated_at = ?, result_json = ? WHERE job_id = ?",
             (state, _now(), json.dumps(result) if result is not None else None, job_id),
         )
+        if tenant_id is not None:
+            db.execute(
+                "INSERT INTO job_events (job_id, tenant_id, event_type, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (job_id, tenant_id, state, _now()),
+            )
 
 
 def _public_result(scanner: UnauthAccessScanner, results: list) -> dict:
@@ -222,7 +279,7 @@ def _public_result(scanner: UnauthAccessScanner, results: list) -> dict:
 
 
 def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
-    _update_job(job_id, "running")
+    _update_job(job_id, "running", tenant_id=tenant_id)
     try:
         scanner = UnauthAccessScanner(
             ScanConfig(
@@ -249,14 +306,38 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
         LearningStore("https://shared.local", "shared").record_shared(
             (item.url, item.accessible, item.is_finding()) for item in results
         )
-        _update_job(job_id, "completed", _public_result(scanner, results))
+        _update_job(
+            job_id,
+            "completed",
+            _public_result(scanner, results),
+            tenant_id,
+        )
     except Exception as exc:
-        _update_job(job_id, "failed", {"error": type(exc).__name__})
+        _update_job(
+            job_id,
+            "failed",
+            {"error": type(exc).__name__},
+            tenant_id,
+        )
 
 
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "red-wolf", "version": app.version}
+
+
+@app.get("/readyz")
+def readyz() -> dict:
+    try:
+        with _connect() as db:
+            db.execute("SELECT 1").fetchone()
+    except sqlite3.Error as exc:
+        raise HTTPException(503, "Service database is unavailable") from exc
+    if not os.environ.get("RED_WOLF_SERVICE_TOKEN"):
+        raise HTTPException(503, "Service authentication is not configured")
+    if not _allowed_hosts():
+        raise HTTPException(503, "No target hosts are configured")
+    return {"status": "ready", "service": "red-wolf", "version": app.version}
 
 
 @app.get("/")
@@ -301,6 +382,11 @@ def cancel_job(job_id: str, tenant_id: str = Depends(_require_token)) -> dict:
         db.execute(
             "UPDATE jobs SET state = ?, updated_at = ? WHERE job_id = ? AND tenant_id = ?",
             ("cancelled", _now(), job_id, tenant_id),
+        )
+        db.execute(
+            "INSERT INTO job_events (job_id, tenant_id, event_type, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (job_id, tenant_id, "cancelled", _now()),
         )
     return {"job_id": job_id, "state": "cancelled"}
 
