@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "red-wolf"
+version = "1.1.0"
+description = "Privacy-first authorized unauthenticated access reconnaissance"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "requests>=2.31.0",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+]
+
+[project.scripts]
+red-wolf = "red_wolf.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["red_wolf*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

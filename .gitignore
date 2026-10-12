@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.db
+*.db-shm
+*.db-wal
+.venv/
+venv/
+.env
+red_wolf_report.*
+reports/
+

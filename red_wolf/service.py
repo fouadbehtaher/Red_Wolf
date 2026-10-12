@@ -1,0 +1,252 @@
+"""Privacy-first HTTP service for authorized Red Wolf scans.
+
+Run with:
+    uvicorn red_wolf.service:app --host 127.0.0.1 --port 8000
+
+The service is intentionally conservative: HTTPS targets must be in
+RED_WOLF_ALLOWED_HOSTS, only read-only methods are accepted, and persisted
+records contain no target URL, response body, headers, credentials, or API key.
+"""
+
+import hashlib
+import json
+import os
+import secrets
+import sqlite3
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Literal
+from urllib.parse import urlparse
+
+from fastapi import Depends, FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+from .learning import LearningStore, normalize_path
+from .scanner import ScanConfig, UnauthAccessScanner
+
+
+app = FastAPI(
+    title="Red Wolf",
+    version="1.1.0",
+    description="Privacy-first authorized reconnaissance service.",
+)
+_executor = ThreadPoolExecutor(max_workers=int(os.environ.get("RED_WOLF_WORKERS", "2")))
+
+
+def _db_path() -> Path:
+    return Path(os.environ.get("RED_WOLF_SERVICE_DB", "red_wolf_service.db")).expanduser()
+
+
+def _connect() -> sqlite3.Connection:
+    path = _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(str(path), timeout=5)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout = 5000")
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jobs (
+            job_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            state TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            target_fingerprint TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            result_json TEXT
+        )
+        """
+    )
+    connection.commit()
+    return connection
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _token_tenant(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:24]
+
+
+def _require_token(x_api_key: str | None = Header(default=None)) -> str:
+    expected = os.environ.get("RED_WOLF_SERVICE_TOKEN")
+    if not expected:
+        raise HTTPException(503, "Service authentication is not configured")
+    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(401, "Invalid service token")
+    return _token_tenant(expected)
+
+
+def _allowed_hosts() -> set[str]:
+    return {
+        item.strip().lower()
+        for item in os.environ.get("RED_WOLF_ALLOWED_HOSTS", "").split(",")
+        if item.strip()
+    }
+
+
+def _validate_target(target: str) -> str:
+    parsed = urlparse(target)
+    allowed = _allowed_hosts()
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise HTTPException(400, "Only HTTPS targets are accepted")
+    if not allowed or parsed.hostname.lower() not in allowed:
+        raise HTTPException(403, "Target is not in the server allowlist")
+    return target.rstrip("/")
+
+
+class ScanRequest(BaseModel):
+    target: HttpUrl
+    authorized: bool = False
+    methods: List[str] = Field(default_factory=lambda: ["GET", "HEAD", "OPTIONS"])
+    profile: Literal["focused", "balanced", "full", "comprehensive"] = "comprehensive"
+    max_discovered: int = Field(default=100, ge=1, le=500)
+
+    @field_validator("methods")
+    @classmethod
+    def read_only_methods(cls, value: List[str]) -> List[str]:
+        methods = list(dict.fromkeys(item.upper() for item in value))
+        if not methods or any(item not in {"GET", "HEAD", "OPTIONS"} for item in methods):
+            raise ValueError("Service scans only GET, HEAD, and OPTIONS")
+        return methods
+
+
+class FeedbackRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=300)
+    useful: bool
+
+
+def _save_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
+    now = _now()
+    hostname = urlparse(target).hostname
+    if not hostname:
+        raise ValueError("Target hostname is required")
+    fingerprint = hashlib.sha256(hostname.encode("utf-8")).hexdigest()[:24]
+    with _connect() as db:
+        db.execute(
+            "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (job_id, tenant_id, "queued", now, now, fingerprint, json.dumps(payload), None),
+        )
+
+
+def _update_job(job_id: str, state: str, result: dict | None = None) -> None:
+    with _connect() as db:
+        db.execute(
+            "UPDATE jobs SET state = ?, updated_at = ?, result_json = ? WHERE job_id = ?",
+            (state, _now(), json.dumps(result) if result is not None else None, job_id),
+        )
+
+
+def _public_result(scanner: UnauthAccessScanner, results: list) -> dict:
+    findings = []
+    for result in results:
+        if not result.is_finding():
+            continue
+        findings.append(
+            {
+                "path": normalize_path(urlparse(result.url).path),
+                "method": result.method,
+                "status_code": result.status_code,
+                "verification_status": result.verification_status,
+                "confidence": result.confidence,
+                "evidence_score": result.evidence_score,
+                "evidence_reasons": result.evidence_reasons,
+                "response_size": result.response_size,
+            }
+        )
+    return {
+        "total_tested": len(results),
+        "accessible": sum(item.accessible for item in results),
+        "findings": findings,
+        "learning": scanner.learning_summary(),
+    }
+
+
+def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
+    _update_job(job_id, "running")
+    try:
+        scanner = UnauthAccessScanner(
+            ScanConfig(
+                base_url=target,
+                methods=payload["methods"],
+                wordlist_profile=payload["profile"],
+                use_wordlist=True,
+                smart_order=True,
+                discovery=True,
+                max_discovered_paths=payload["max_discovered"],
+                learning=True,
+                auto_verify=True,
+                learning_namespace=tenant_id,
+            )
+        )
+        results = scanner.run()
+        LearningStore("https://shared.local", "shared").record_shared(
+            (item.url, item.accessible, item.is_finding()) for item in results
+        )
+        _update_job(job_id, "completed", _public_result(scanner, results))
+    except Exception as exc:
+        _update_job(job_id, "failed", {"error": type(exc).__name__})
+
+
+@app.get("/healthz")
+def healthz() -> dict:
+    return {"status": "ok", "service": "red-wolf", "version": app.version}
+
+
+@app.get("/")
+def service_info() -> dict:
+    return {
+        "service": "red-wolf",
+        "version": app.version,
+        "documentation": "/docs",
+        "authorization_required": True,
+        "read_only_methods": ["GET", "HEAD", "OPTIONS"],
+    }
+
+
+@app.post("/v1/jobs", status_code=202)
+def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -> dict:
+    if not request.authorized:
+        raise HTTPException(400, "Explicit authorization confirmation is required")
+    target = _validate_target(str(request.target))
+    job_id = str(uuid.uuid4())
+    payload = {
+        "methods": request.methods,
+        "profile": request.profile,
+        "max_discovered": request.max_discovered,
+    }
+    _save_job(job_id, tenant_id, target, payload)
+    _executor.submit(_run_job, job_id, tenant_id, target, payload)
+    return {"job_id": job_id, "state": "queued"}
+
+
+@app.get("/v1/jobs/{job_id}")
+def get_job(job_id: str, tenant_id: str = Depends(_require_token)) -> dict:
+    with _connect() as db:
+        row = db.execute(
+            "SELECT job_id, state, created_at, updated_at, result_json FROM jobs "
+            "WHERE job_id = ? AND tenant_id = ?",
+            (job_id, tenant_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Job not found")
+    return {
+        "job_id": row["job_id"],
+        "state": row["state"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "result": json.loads(row["result_json"]) if row["result_json"] else None,
+    }
+
+
+@app.post("/v1/feedback")
+def feedback(request: FeedbackRequest, tenant_id: str = Depends(_require_token)) -> dict:
+    # tenant_id is intentionally part of the local store namespace.
+    if "://" in request.path or any(char in request.path for char in "\r\n"):
+        raise HTTPException(400, "Only a relative path is accepted")
+    LearningStore("https://tenant.local", tenant_id).add_feedback(request.path, request.useful)
+    return {"status": "recorded"}

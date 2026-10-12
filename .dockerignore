@@ -1,0 +1,12 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+*.db
+*.db-shm
+*.db-wal
+dist
+build
+*.egg-info
+red_wolf_report.*
