@@ -24,6 +24,7 @@ from typing import List, Literal
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from .learning import LearningStore, normalize_path
@@ -445,6 +446,14 @@ def service_info() -> dict:
         "authorization_required": True,
         "read_only_methods": ["GET", "HEAD", "OPTIONS"],
     }
+
+
+@app.get("/dashboard", response_class=FileResponse)
+def dashboard() -> FileResponse:
+    path = Path(__file__).resolve().parent.parent / "assets" / "dashboard.html"
+    if not path.is_file():
+        raise HTTPException(503, "Dashboard asset is unavailable")
+    return FileResponse(path, media_type="text/html")
 
 
 @app.post("/v1/jobs", status_code=202)

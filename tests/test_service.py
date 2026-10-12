@@ -147,3 +147,9 @@ def test_retention_cleanup_removes_old_jobs(service_module, monkeypatch):
             ("2000-01-01T00:00:00+00:00", "old-job"),
         )
     assert service_module._cleanup_expired_jobs() == 1
+
+
+def test_dashboard_asset_is_available(service_module):
+    response = service_module.dashboard()
+    assert response.media_type == "text/html"
+    assert response.path.name == "dashboard.html"

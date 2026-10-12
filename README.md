@@ -322,6 +322,7 @@ Endpoints:
 - `GET /healthz`
 - `GET /readyz`
 - `GET /metrics`
+- `GET /dashboard`
 - `POST /v1/jobs`
 - `GET /v1/jobs`
 - `GET /v1/jobs/{job_id}`
@@ -350,6 +351,11 @@ job-state gauges. Jobs and their audit events older than
 
 Copy `.env.example` to `.env.local` for a documented local configuration
 starting point. Never commit the copy or real credentials.
+
+Open `/dashboard` in a browser for the optional dependency-free operator UI.
+The service token is held only in the current page memory and is not written
+to local storage or cookies. Put the dashboard behind TLS and a trusted
+access layer before exposing it beyond a private operator network.
 
 ## Testing
 

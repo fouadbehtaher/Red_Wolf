@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Red Wolf Dashboard</title>
+  <style>
+    :root { color-scheme: dark; --red: #ef3030; --panel: #151515; --muted: #a7a7a7; }
+    body { margin: 0; background: #080808; color: #eee; font: 15px Segoe UI, Arial, sans-serif; }
+    main { max-width: 1080px; margin: auto; padding: 28px; }
+    h1 { color: var(--red); letter-spacing: 8px; margin: 0 0 6px; }
+    .subtitle, small { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: 320px 1fr; gap: 18px; margin-top: 24px; }
+    section { background: var(--panel); border: 1px solid #303030; border-radius: 10px; padding: 18px; }
+    label { display: block; color: var(--muted); margin: 13px 0 5px; }
+    input, textarea, select, button { box-sizing: border-box; width: 100%; border: 1px solid #444; border-radius: 6px; padding: 10px; background: #0d0d0d; color: #eee; }
+    textarea { min-height: 80px; resize: vertical; }
+    button { background: #8c1515; border-color: #bd2929; cursor: pointer; margin-top: 14px; }
+    button:hover { background: #b51d1d; }
+    button.secondary { background: #252525; border-color: #555; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row button { width: auto; white-space: nowrap; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align: left; padding: 9px 6px; border-bottom: 1px solid #303030; }
+    .status { color: #ff6767; }
+    pre { max-height: 250px; overflow: auto; background: #090909; padding: 12px; border-radius: 6px; white-space: pre-wrap; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } main { padding: 16px; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>RED WOLF</h1>
+  <div class="subtitle">Authorized scan operations · no external assets · token stays in memory</div>
+  <div class="grid">
+    <section>
+      <label for="key">Service token</label>
+      <input id="key" type="password" autocomplete="off">
+      <label for="target">Authorized HTTPS target</label>
+      <input id="target" placeholder="https://target.example.com">
+      <label for="excluded">Excluded paths (one per line)</label>
+      <textarea id="excluded" placeholder="/admin&#10;/internal"></textarea>
+      <label for="profile">Profile</label>
+      <select id="profile">
+        <option>focused</option><option selected>balanced</option>
+        <option>full</option><option>comprehensive</option>
+      </select>
+      <button id="start">Start authorized scan</button>
+      <button id="refresh" class="secondary">Refresh jobs</button>
+      <div id="message" class="subtitle" role="status"></div>
+    </section>
+    <section>
+      <h2>Jobs</h2>
+      <table>
+        <thead><tr><th>ID</th><th>State</th><th>Created</th><th>Action</th></tr></thead>
+        <tbody id="jobs"></tbody>
+      </table>
+      <h2>Selected job</h2>
+      <pre id="details">Select a job to inspect its redacted result and events.</pre>
+    </section>
+  </div>
+</main>
+<script>
+  const state = { selected: null, timer: null };
+  const el = id => document.getElementById(id);
+  const headers = () => ({ "X-API-Key": el("key").value, "Content-Type": "application/json" });
+  const message = text => { el("message").textContent = text; };
+  async function api(path, options = {}) {
+    const response = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
+    return data;
+  }
+  async function refresh() {
+    try {
+      const data = await api("/v1/jobs?limit=50");
+      el("jobs").innerHTML = data.jobs.map(job => `<tr>
+        <td><button class="secondary" onclick="selectJob('${job.job_id}')">${job.job_id.slice(0, 8)}</button></td>
+        <td class="status">${job.state}</td><td>${new Date(job.created_at).toLocaleString()}</td>
+        <td>${["queued", "running"].includes(job.state) ? `<button class="secondary" onclick="cancelJob('${job.job_id}')">Cancel</button>` : ""}</td>
+      </tr>`).join("");
+    } catch (error) { message(error.message); }
+  }
+  async function selectJob(id) {
+    state.selected = id;
+    try {
+      const [job, events] = await Promise.all([api(`/v1/jobs/${id}`), api(`/v1/jobs/${id}/events`)]);
+      el("details").textContent = JSON.stringify({ job, events }, null, 2);
+    } catch (error) { message(error.message); }
+  }
+  async function cancelJob(id) {
+    try { await api(`/v1/jobs/${id}/cancel`, { method: "POST" }); await refresh(); await selectJob(id); }
+    catch (error) { message(error.message); }
+  }
+  el("start").onclick = async () => {
+    const excluded = el("excluded").value.split("\n").map(item => item.trim()).filter(Boolean);
+    try {
+      const data = await api("/v1/jobs", { method: "POST", body: JSON.stringify({
+        target: el("target").value, authorized: true, profile: el("profile").value,
+        excluded_paths: excluded
+      })});
+      message(`Queued ${data.job_id}`); await refresh(); await selectJob(data.job_id);
+    } catch (error) { message(error.message); }
+  };
+  el("refresh").onclick = refresh;
+  window.selectJob = selectJob; window.cancelJob = cancelJob;
+  refresh();
+  state.timer = setInterval(refresh, 5000);
+</script>
+</body>
+</html>
