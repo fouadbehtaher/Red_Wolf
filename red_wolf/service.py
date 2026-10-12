@@ -456,6 +456,21 @@ def _public_result(
     results: list,
     deep_findings: list | None = None,
 ) -> dict:
+    accessible_endpoints = [
+        {
+            "path": normalize_path(urlparse(result.url).path),
+            "method": result.method,
+            "status_code": result.status_code,
+            "content_type": result.content_type,
+            "response_size": result.response_size,
+            "verification_status": result.verification_status,
+            "confidence": result.confidence,
+            "evidence_score": result.evidence_score,
+            "cors_wildcard": result.cors_wildcard,
+        }
+        for result in results
+        if result.accessible
+    ]
     findings = []
     for result in results:
         if not result.is_finding():
@@ -496,6 +511,7 @@ def _public_result(
     return {
         "total_tested": len(results),
         "accessible": sum(item.accessible for item in results),
+        "accessible_endpoints": accessible_endpoints,
         "findings": findings,
         "deep_probe_downloads": downloads,
         "confirmed_unauth_downloads": sum(

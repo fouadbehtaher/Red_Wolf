@@ -377,6 +377,29 @@ def test_public_result_includes_redacted_deep_probe_downloads(service_module):
     assert "secret" not in serialized
 
 
+def test_public_result_exposes_safe_accessible_endpoint_inventory(service_module):
+    from red_wolf.scanner import EndpointResult, ScanConfig, UnauthAccessScanner
+
+    scanner = UnauthAccessScanner(
+        ScanConfig(base_url="https://example.com", learning=False)
+    )
+    result = EndpointResult(
+        url="https://example.com/api/items?token=secret",
+        method="GET",
+        status_code=200,
+        accessible=True,
+        cors_wildcard=False,
+        content_type="application/json",
+        response_size=321,
+    )
+    public = service_module._public_result(scanner, [result])
+    endpoint = public["accessible_endpoints"][0]
+    assert endpoint["path"] == "api/items"
+    assert endpoint["status_code"] == 200
+    assert endpoint["content_type"] == "application/json"
+    assert "secret" not in str(public)
+
+
 def test_text_probe_extracts_pdf_references():
     from red_wolf.deep_probe import extract_candidate_file_refs_from_text
 

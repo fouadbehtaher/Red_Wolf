@@ -63,6 +63,19 @@ def build_report_data(
         "total_accessible_without_auth": len([r for r in results if r.accessible]),
         "findings_count": len(findings),
         "confirmed_unauth_downloads": len(confirmed_downloads),
+        "accessible_endpoints": [
+            {
+                "path": f.url,
+                "method": f.method,
+                "status_code": f.status_code,
+                "content_type": f.content_type,
+                "response_size": f.response_size,
+                "verification_status": f.verification_status,
+                "confidence": f.confidence,
+            }
+            for f in results
+            if f.accessible
+        ],
         "learning": learning or {"enabled": False},
         "findings": [
             {
@@ -144,6 +157,19 @@ def to_markdown(report_data: dict) -> str:
             if f["sample_snippet"]:
                 lines.append(f"- **Body preview:** `{f['sample_snippet']}`")
             lines.append("")
+
+    if report_data.get("accessible_endpoints"):
+        lines.append("## Accessible Endpoint Inventory\n")
+        lines.append("| Method | Path | Status | Content-Type | Size | Verification |")
+        lines.append("|---|---|---:|---|---:|---|")
+        for endpoint in report_data["accessible_endpoints"]:
+            lines.append(
+                f"| {endpoint['method']} | `{endpoint['path']}` | "
+                f"{endpoint['status_code']} | {endpoint.get('content_type') or 'unknown'} | "
+                f"{endpoint.get('response_size', 0)} | "
+                f"{endpoint.get('verification_status') or 'unverified'} |"
+            )
+        lines.append("")
 
     if report_data["deep_probe_downloads"]:
         lines.append("## Deep Probe: File Download Verification\n")
