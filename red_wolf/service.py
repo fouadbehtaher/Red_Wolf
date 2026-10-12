@@ -228,6 +228,15 @@ def _allowed_hosts() -> set[str]:
     }
 
 
+def _host_is_allowed(hostname: str, allowed: set[str]) -> bool:
+    hostname = hostname.lower().rstrip(".")
+    return any(
+        entry == hostname
+        or (entry.startswith("*.") and hostname.endswith(entry[1:]) and hostname != entry[2:])
+        for entry in allowed
+    )
+
+
 def _blocked_ip(address: str) -> bool:
     parsed = ipaddress.ip_address(address)
     return (
@@ -258,7 +267,7 @@ def _validate_target(target: str) -> str:
         parsed.port
     except ValueError as exc:
         raise HTTPException(400, "Target port is invalid") from exc
-    if not allowed or parsed.hostname.lower() not in allowed:
+    if not allowed or not _host_is_allowed(parsed.hostname, allowed):
         raise HTTPException(403, "Target is not in the server allowlist")
     addresses = _resolved_addresses(parsed.hostname)
     if not addresses or any(_blocked_ip(address) for address in addresses):

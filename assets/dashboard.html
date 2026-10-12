@@ -83,18 +83,18 @@
         <td class="status">${job.state}</td><td>${new Date(job.created_at).toLocaleString()}</td>
         <td>${["queued", "running"].includes(job.state) ? `<button class="secondary" onclick="cancelJob('${job.job_id}')">Cancel</button>` : ""}</td>
       </tr>`).join("");
-    } catch (error) { message(error.message); }
+    } catch (error) { message(typeof error.message === "string" ? error.message : JSON.stringify(error.message)); }
   }
   async function selectJob(id) {
     state.selected = id;
     try {
       const [job, events] = await Promise.all([api(`/v1/jobs/${id}`), api(`/v1/jobs/${id}/events`)]);
       el("details").textContent = JSON.stringify({ job, events }, null, 2);
-    } catch (error) { message(error.message); }
+    } catch (error) { message(typeof error.message === "string" ? error.message : JSON.stringify(error.message)); }
   }
   async function cancelJob(id) {
     try { await api(`/v1/jobs/${id}/cancel`, { method: "POST" }); await refresh(); await selectJob(id); }
-    catch (error) { message(error.message); }
+    catch (error) { message(typeof error.message === "string" ? error.message : JSON.stringify(error.message)); }
   }
   el("start").onclick = async () => {
     const excluded = el("excluded").value.split("\n").map(item => item.trim()).filter(Boolean);
@@ -105,7 +105,7 @@
         save_downloads: el("saveDownloads").checked
       })});
       message(`Queued ${data.job_id}`); await refresh(); await selectJob(data.job_id);
-    } catch (error) { message(error.message); }
+    } catch (error) { message(typeof error.message === "string" ? error.message : JSON.stringify(error.message)); }
   };
   el("refresh").onclick = refresh;
   window.selectJob = selectJob; window.cancelJob = cancelJob;

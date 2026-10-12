@@ -419,6 +419,15 @@ def test_download_verification_records_pdf_evidence(monkeypatch, tmp_path):
     assert Path(result["saved_path"]).read_bytes().startswith(b"%PDF-")
 
 
+def test_allowlist_supports_authorized_subdomain_wildcard(service_module):
+    assert service_module._host_is_allowed(
+        "www.unibas.ch", {"*.unibas.ch"}
+    )
+    assert not service_module._host_is_allowed(
+        "unibas.ch", {"*.unibas.ch"}
+    )
+
+
 def test_relative_file_reference_preserves_relative_path(monkeypatch):
     from red_wolf import deep_probe
 
