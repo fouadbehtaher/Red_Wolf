@@ -70,6 +70,9 @@
     if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
     return data;
   }
+  if (window.location.protocol === "file:") {
+    message("Open this page through the running Red Wolf service at /dashboard.");
+  }
   async function refresh() {
     try {
       const data = await api("/v1/jobs?limit=50");
@@ -103,7 +106,7 @@
   };
   el("refresh").onclick = refresh;
   window.selectJob = selectJob; window.cancelJob = cancelJob;
-  refresh();
+  if (window.location.protocol !== "file:") refresh();
   state.timer = setInterval(refresh, 5000);
 </script>
 </body>

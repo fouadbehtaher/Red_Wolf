@@ -153,3 +153,28 @@ def test_dashboard_asset_is_available(service_module):
     response = service_module.dashboard()
     assert response.media_type == "text/html"
     assert response.path.name == "dashboard.html"
+
+
+def test_create_list_and_event_job_contract(service_module, monkeypatch):
+    tenant_id = service_module._token_tenant("test-token")
+    monkeypatch.setattr(
+        service_module,
+        "_validate_target",
+        lambda target: target.rstrip("/"),
+    )
+    monkeypatch.setattr(
+        service_module._executor,
+        "submit",
+        lambda *args: None,
+    )
+    request = service_module.ScanRequest(
+        target="https://example.com",
+        authorized=True,
+        discovery=False,
+    )
+    created = service_module.create_job(request, tenant_id)
+    job_id = created["job_id"]
+    listed = service_module.list_jobs(tenant_id, limit=25, state=None)
+    assert any(item["job_id"] == job_id for item in listed["jobs"])
+    events = service_module.get_job_events(job_id, tenant_id)
+    assert events["events"][0]["event_type"] == "queued"
