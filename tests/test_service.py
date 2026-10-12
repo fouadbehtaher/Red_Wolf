@@ -402,3 +402,23 @@ def test_reserve_job_enforces_quota_atomically(service_module):
             {"methods": ["GET"], "profile": "focused", "max_discovered": 1},
         )
     assert error.value.status_code == 429
+
+
+def test_terminal_result_cannot_overwrite_cancellation(service_module):
+    tenant_id = service_module._token_tenant("test-token")
+    service_module._save_job(
+        "race-job",
+        tenant_id,
+        "https://example.com",
+        {"methods": ["GET"], "profile": "focused", "max_discovered": 1},
+    )
+    assert service_module._mark_job_running("race-job", tenant_id)
+    service_module.cancel_job("race-job", tenant_id)
+    assert not service_module._finish_job_if_running(
+        "race-job",
+        tenant_id,
+        "completed",
+        {"total_tested": 0, "findings": []},
+    )
+    job = service_module.get_job("race-job", tenant_id)
+    assert job["state"] == "cancelled"

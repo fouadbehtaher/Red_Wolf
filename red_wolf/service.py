@@ -369,6 +369,29 @@ def _update_job(
             )
 
 
+def _finish_job_if_running(
+    job_id: str,
+    tenant_id: str,
+    state: str,
+    result: dict,
+) -> bool:
+    """Publish a terminal result only if cancellation has not won the race."""
+    now = _now()
+    with _connect() as db:
+        updated = db.execute(
+            "UPDATE jobs SET state = ?, updated_at = ?, result_json = ? "
+            "WHERE job_id = ? AND tenant_id = ? AND state = 'running'",
+            (state, now, json.dumps(result), job_id, tenant_id),
+        ).rowcount
+        if updated:
+            db.execute(
+                "INSERT INTO job_events (job_id, tenant_id, event_type, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (job_id, tenant_id, state, now),
+            )
+    return bool(updated)
+
+
 def _mark_job_running(job_id: str, tenant_id: str) -> bool:
     now = _now()
     with _connect() as db:
@@ -438,36 +461,26 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
             )
         )
         results = scanner.run()
-        with _connect() as db:
-            current = db.execute(
-                "SELECT state FROM jobs WHERE job_id = ? AND tenant_id = ?",
-                (job_id, tenant_id),
-            ).fetchone()
-        if current is None or current["state"] == "cancelled":
+        if cancel_event.is_set():
             return
         if payload.get("share_learning", False):
             LearningStore("https://shared.local", "shared").record_shared(
                 (item.url, item.accessible, item.is_finding()) for item in results
             )
-        _update_job(
+        _finish_job_if_running(
             job_id,
+            tenant_id,
             "completed",
             _public_result(scanner, results),
-            tenant_id,
         )
     except Exception as exc:
-        with _connect() as db:
-            current = db.execute(
-                "SELECT state FROM jobs WHERE job_id = ? AND tenant_id = ?",
-                (job_id, tenant_id),
-            ).fetchone()
-        if current is None or current["state"] == "cancelled":
+        if cancel_event.is_set():
             return
-        _update_job(
+        _finish_job_if_running(
             job_id,
+            tenant_id,
             "failed",
             {"error": type(exc).__name__},
-            tenant_id,
         )
     finally:
         with _cancel_events_lock:
