@@ -45,6 +45,18 @@ def test_shutdown_requests_cancellation_for_active_workers(service_module):
         service_module._cancel_events.clear()
 
 
+def test_shutdown_waits_for_executor_after_cancelling_workers(service_module, monkeypatch):
+    calls = []
+
+    class FakeExecutor:
+        def shutdown(self, *, wait, cancel_futures):
+            calls.append((wait, cancel_futures))
+
+    monkeypatch.setattr(service_module, "_executor", FakeExecutor())
+    service_module._shutdown_executor()
+    assert calls == [(True, True)]
+
+
 def test_target_requires_allowlisted_https_host(service_module):
     service_module._resolved_addresses = lambda hostname: {"93.184.216.34"}
     with pytest.raises(service_module.HTTPException) as error:

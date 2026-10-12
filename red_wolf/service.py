@@ -40,8 +40,7 @@ async def _lifespan(_: FastAPI):
     try:
         yield
     finally:
-        _request_worker_shutdown()
-        _executor.shutdown(wait=False, cancel_futures=True)
+        _shutdown_executor()
 
 
 app = FastAPI(
@@ -81,6 +80,11 @@ def _request_worker_shutdown() -> None:
         events = list(_cancel_events.values())
     for event in events:
         event.set()
+
+
+def _shutdown_executor() -> None:
+    _request_worker_shutdown()
+    _executor.shutdown(wait=True, cancel_futures=True)
 
 
 def _connect() -> sqlite3.Connection:
