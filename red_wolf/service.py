@@ -49,11 +49,25 @@ app = FastAPI(
     description="Privacy-first authorized reconnaissance service.",
     lifespan=_lifespan,
 )
-_executor = ThreadPoolExecutor(max_workers=int(os.environ.get("RED_WOLF_WORKERS", "2")))
+
+
+def _positive_env_int(name: str, default: int) -> int:
+    raw_value = os.environ.get(name, str(default))
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer") from exc
+    if value < 1:
+        raise RuntimeError(f"{name} must be at least 1")
+    return value
+
+
+_WORKERS_CONFIGURED = _positive_env_int("RED_WOLF_WORKERS", 2)
+_MAX_JOBS_PER_WINDOW = _positive_env_int("RED_WOLF_MAX_JOBS_PER_WINDOW", 5)
+_JOB_WINDOW_SECONDS = _positive_env_int("RED_WOLF_JOB_WINDOW_SECONDS", 3600)
+_executor = ThreadPoolExecutor(max_workers=_WORKERS_CONFIGURED)
 _cancel_events: dict[str, threading.Event] = {}
 _cancel_events_lock = threading.Lock()
-_MAX_JOBS_PER_WINDOW = int(os.environ.get("RED_WOLF_MAX_JOBS_PER_WINDOW", "5"))
-_JOB_WINDOW_SECONDS = int(os.environ.get("RED_WOLF_JOB_WINDOW_SECONDS", "3600"))
 
 
 def _db_path() -> Path:
@@ -505,7 +519,7 @@ def metrics(_: str = Depends(_require_token)) -> Response:
     for state in ("queued", "running", "completed", "failed", "cancelled"):
         lines.append(f'red_wolf_jobs_total{{state="{state}"}} {counts.get(state, 0)}')
     lines.append(
-        f"red_wolf_workers_configured {int(os.environ.get('RED_WOLF_WORKERS', '2'))}"
+        f"red_wolf_workers_configured {_WORKERS_CONFIGURED}"
     )
     return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 

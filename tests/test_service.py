@@ -20,6 +20,16 @@ def test_blocked_network_addresses(service_module):
     assert not service_module._blocked_ip("93.184.216.34")
 
 
+def test_service_integer_settings_fail_with_actionable_errors(service_module, monkeypatch):
+    monkeypatch.setenv("RED_WOLF_WORKERS", "many")
+    with pytest.raises(RuntimeError, match="RED_WOLF_WORKERS must be an integer"):
+        service_module._positive_env_int("RED_WOLF_WORKERS", 2)
+
+    monkeypatch.setenv("RED_WOLF_JOB_WINDOW_SECONDS", "0")
+    with pytest.raises(RuntimeError, match="RED_WOLF_JOB_WINDOW_SECONDS must be at least 1"):
+        service_module._positive_env_int("RED_WOLF_JOB_WINDOW_SECONDS", 3600)
+
+
 def test_target_requires_allowlisted_https_host(service_module):
     service_module._resolved_addresses = lambda hostname: {"93.184.216.34"}
     with pytest.raises(service_module.HTTPException) as error:

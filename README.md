@@ -304,6 +304,10 @@ job can be cancelled with `POST /v1/jobs/{job_id}/cancel`; cancellation
 prevents a completed result from being published and stops an active scan
 between HTTP requests. An in-flight HTTP request is allowed to finish at its
 configured timeout so worker threads are never terminated unsafely.
+`RED_WOLF_WORKERS`, `RED_WOLF_MAX_JOBS_PER_WINDOW`, and
+`RED_WOLF_JOB_WINDOW_SECONDS` must be positive integers; invalid values fail
+startup with an explicit configuration error instead of a partially running
+service.
 Quota reservation and job insertion happen in one SQLite transaction, so
 concurrent requests cannot bypass the limit through a check-then-insert race.
 
