@@ -9,10 +9,12 @@ records contain no target URL, response body, headers, credentials, or API key.
 """
 
 import hashlib
+import ipaddress
 import json
 import os
 import secrets
 import sqlite3
+import socket
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -33,6 +35,8 @@ app = FastAPI(
     description="Privacy-first authorized reconnaissance service.",
 )
 _executor = ThreadPoolExecutor(max_workers=int(os.environ.get("RED_WOLF_WORKERS", "2")))
+_MAX_JOBS_PER_WINDOW = int(os.environ.get("RED_WOLF_MAX_JOBS_PER_WINDOW", "5"))
+_JOB_WINDOW_SECONDS = int(os.environ.get("RED_WOLF_JOB_WINDOW_SECONDS", "3600"))
 
 
 def _db_path() -> Path:
@@ -57,6 +61,17 @@ def _connect() -> sqlite3.Connection:
             target_fingerprint TEXT NOT NULL,
             payload_json TEXT NOT NULL,
             result_json TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_events (
+            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            created_at TEXT NOT NULL
         )
         """
     )
@@ -89,6 +104,25 @@ def _allowed_hosts() -> set[str]:
     }
 
 
+def _blocked_ip(address: str) -> bool:
+    parsed = ipaddress.ip_address(address)
+    return (
+        parsed.is_private
+        or parsed.is_loopback
+        or parsed.is_link_local
+        or parsed.is_multicast
+        or parsed.is_reserved
+        or parsed.is_unspecified
+    )
+
+
+def _resolved_addresses(hostname: str) -> set[str]:
+    try:
+        return {item[4][0] for item in socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)}
+    except OSError as exc:
+        raise HTTPException(400, "Target hostname could not be resolved") from exc
+
+
 def _validate_target(target: str) -> str:
     parsed = urlparse(target)
     allowed = _allowed_hosts()
@@ -96,7 +130,28 @@ def _validate_target(target: str) -> str:
         raise HTTPException(400, "Only HTTPS targets are accepted")
     if not allowed or parsed.hostname.lower() not in allowed:
         raise HTTPException(403, "Target is not in the server allowlist")
+    addresses = _resolved_addresses(parsed.hostname)
+    if not addresses or any(_blocked_ip(address) for address in addresses):
+        raise HTTPException(403, "Target resolves to a blocked network address")
     return target.rstrip("/")
+
+
+def _check_job_quota(tenant_id: str) -> None:
+    cutoff = datetime.now(timezone.utc).timestamp() - _JOB_WINDOW_SECONDS
+    with _connect() as db:
+        rows = db.execute(
+            "SELECT created_at FROM jobs WHERE tenant_id = ?",
+            (tenant_id,),
+        ).fetchall()
+    recent = 0
+    for row in rows:
+        try:
+            created = datetime.fromisoformat(row["created_at"]).timestamp()
+        except ValueError:
+            continue
+        recent += created >= cutoff
+    if recent >= _MAX_JOBS_PER_WINDOW:
+        raise HTTPException(429, "Job quota exceeded for this tenant")
 
 
 class ScanRequest(BaseModel):
@@ -184,6 +239,13 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
             )
         )
         results = scanner.run()
+        with _connect() as db:
+            current = db.execute(
+                "SELECT state FROM jobs WHERE job_id = ? AND tenant_id = ?",
+                (job_id, tenant_id),
+            ).fetchone()
+        if current is None or current["state"] == "cancelled":
+            return
         LearningStore("https://shared.local", "shared").record_shared(
             (item.url, item.accessible, item.is_finding()) for item in results
         )
@@ -213,6 +275,7 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
     if not request.authorized:
         raise HTTPException(400, "Explicit authorization confirmation is required")
     target = _validate_target(str(request.target))
+    _check_job_quota(tenant_id)
     job_id = str(uuid.uuid4())
     payload = {
         "methods": request.methods,
@@ -222,6 +285,24 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
     _save_job(job_id, tenant_id, target, payload)
     _executor.submit(_run_job, job_id, tenant_id, target, payload)
     return {"job_id": job_id, "state": "queued"}
+
+
+@app.post("/v1/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, tenant_id: str = Depends(_require_token)) -> dict:
+    with _connect() as db:
+        row = db.execute(
+            "SELECT state FROM jobs WHERE job_id = ? AND tenant_id = ?",
+            (job_id, tenant_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Job not found")
+        if row["state"] in {"completed", "failed", "cancelled"}:
+            return {"job_id": job_id, "state": row["state"]}
+        db.execute(
+            "UPDATE jobs SET state = ?, updated_at = ? WHERE job_id = ? AND tenant_id = ?",
+            ("cancelled", _now(), job_id, tenant_id),
+        )
+    return {"job_id": job_id, "state": "cancelled"}
 
 
 @app.get("/v1/jobs/{job_id}")

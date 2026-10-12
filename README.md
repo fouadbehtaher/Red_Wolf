@@ -243,6 +243,18 @@ alphabetical order -- see `--smart-order` above.
 
 ## Using it as a library (for your dashboard/API project)
 
+```python
+from red_wolf import ScanConfig, UnauthAccessScanner, build_report_data, to_json
+
+config = ScanConfig(
+    base_url="https://target.example.com",
+    endpoints=["api/search"],
+    methods=["GET", "HEAD", "OPTIONS"],
+)
+scanner = UnauthAccessScanner(config)
+results = scanner.run()
+report = build_report_data(config.base_url, results)
+print(to_json(report))
 ```
 
 ## Hosted service mode
@@ -274,6 +286,17 @@ The service also exposes `/docs` for an interactive OpenAPI reference. Keep
 that endpoint behind the same reverse proxy authentication as the API in
 production.
 
+The service rejects non-HTTPS targets, requires an exact allowlisted hostname,
+resolves the hostname before queuing work, and rejects loopback, private,
+link-local, multicast, reserved, unspecified, and cloud-metadata addresses.
+This is a first barrier, not a substitute for network egress controls; deploy
+the worker in a restricted network with no access to instance metadata.
+
+Per-tenant job quotas are controlled by `RED_WOLF_MAX_JOBS_PER_WINDOW` and
+`RED_WOLF_JOB_WINDOW_SECONDS` (defaults: 5 jobs per hour). A queued or running
+job can be cancelled with `POST /v1/jobs/{job_id}/cancel`; cancellation
+prevents a completed result from being published.
+
 ### Container deployment
 
 Build and run the hardened non-root image:
@@ -296,32 +319,20 @@ Endpoints:
 - `GET /healthz`
 - `POST /v1/jobs`
 - `GET /v1/jobs/{job_id}`
-- `POST /v1/feedback`python
-from red_wolf import ScanConfig, UnauthAccessScanner, build_report_data, to_json
-from red_wolf import AIConfig, analyze_report, AIAnalysisError
+- `POST /v1/jobs/{job_id}/cancel`
+- `POST /v1/feedback`
 
-config = ScanConfig(base_url="https://target.example.com", endpoints=["api/search"])
-scanner = UnauthAccessScanner(config)
-results = scanner.run()
+## Testing
 
-report = build_report_data(config.base_url, results)
+Run the focused service safety tests with:
 
-try:
-    analysis = analyze_report(report, AIConfig(provider="openai", api_key="sk-..."))
-    report["ai_analysis"] = analysis
-except AIAnalysisError as e:
-    print("AI step skipped:", e)
-
-print(to_json(report))
+```bash
+python -m pytest tests -q
 ```
 
-## Testing it yourself (safe, local, no real target or API key needed)
-
-Two mock servers are included so you can see the whole flow end-to-end
-without touching any real target or spending real API credits:
-
-- `test_vuln_app.py` — a tiny deliberately-vulnerable Flask app (`127.0.0.1` only) mimicking the equella-style bug.
-- `test_mock_ai_server.py` — a mock OpenAI-compatible server that returns a fake-but-structurally-correct analysis.
+The suite covers blocked network addresses, HTTPS and allowlist validation,
+and tenant job quotas. Add a local mock target before exercising the scanner
+itself; never use a public target as a test fixture.
 
 ```bash
 python test_vuln_app.py &
