@@ -200,3 +200,38 @@ def test_create_list_and_event_job_contract(service_module, monkeypatch):
     assert any(item["job_id"] == job_id for item in listed["jobs"])
     events = service_module.get_job_events(job_id, tenant_id)
     assert events["events"][0]["event_type"] == "queued"
+
+
+def test_cancelled_queued_job_is_not_started(service_module):
+    tenant_id = service_module._token_tenant("test-token")
+    service_module._save_job(
+        "cancel-before-start",
+        tenant_id,
+        "https://example.com",
+        {"methods": ["GET"], "profile": "focused", "max_discovered": 1},
+    )
+    service_module.cancel_job("cancel-before-start", tenant_id)
+    service_module._run_job(
+        "cancel-before-start",
+        tenant_id,
+        "https://example.com",
+        {"methods": ["GET"], "profile": "focused", "max_discovered": 1},
+    )
+    job = service_module.get_job("cancel-before-start", tenant_id)
+    assert job["state"] == "cancelled"
+
+
+def test_worker_submit_failure_marks_job_failed(service_module, monkeypatch):
+    tenant_id = service_module._token_tenant("test-token")
+    monkeypatch.setattr(service_module, "_validate_target", lambda target: target)
+
+    def fail_submit(*_args):
+        raise RuntimeError("executor stopped")
+
+    monkeypatch.setattr(service_module._executor, "submit", fail_submit)
+    request = service_module.ScanRequest(target="https://example.com", authorized=True)
+    with pytest.raises(service_module.HTTPException) as error:
+        service_module.create_job(request, tenant_id)
+    assert error.value.status_code == 503
+    jobs = service_module.list_jobs(tenant_id, limit=100, state="failed")
+    assert len(jobs["jobs"]) == 1

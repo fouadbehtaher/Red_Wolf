@@ -36,7 +36,10 @@ from .scanner import ScanConfig, UnauthAccessScanner
 async def _lifespan(_: FastAPI):
     _recover_interrupted_jobs()
     _cleanup_expired_jobs()
-    yield
+    try:
+        yield
+    finally:
+        _executor.shutdown(wait=False, cancel_futures=True)
 
 
 app = FastAPI(
@@ -329,6 +332,23 @@ def _update_job(
             )
 
 
+def _mark_job_running(job_id: str, tenant_id: str) -> bool:
+    now = _now()
+    with _connect() as db:
+        updated = db.execute(
+            "UPDATE jobs SET state = ?, updated_at = ? "
+            "WHERE job_id = ? AND tenant_id = ? AND state = 'queued'",
+            ("running", now, job_id, tenant_id),
+        ).rowcount
+        if updated:
+            db.execute(
+                "INSERT INTO job_events (job_id, tenant_id, event_type, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (job_id, tenant_id, "running", now),
+            )
+    return bool(updated)
+
+
 def _public_result(scanner: UnauthAccessScanner, results: list) -> dict:
     findings = []
     for result in results:
@@ -355,7 +375,8 @@ def _public_result(scanner: UnauthAccessScanner, results: list) -> dict:
 
 
 def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
-    _update_job(job_id, "running", tenant_id=tenant_id)
+    if not _mark_job_running(job_id, tenant_id):
+        return
     try:
         scanner = UnauthAccessScanner(
             ScanConfig(
@@ -484,7 +505,16 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
         "max_response_bytes": request.max_response_bytes,
     }
     _save_job(job_id, tenant_id, target, payload)
-    _executor.submit(_run_job, job_id, tenant_id, target, payload)
+    try:
+        _executor.submit(_run_job, job_id, tenant_id, target, payload)
+    except RuntimeError as exc:
+        _update_job(
+            job_id,
+            "failed",
+            {"error": "worker_unavailable"},
+            tenant_id,
+        )
+        raise HTTPException(503, "Job worker is unavailable") from exc
     return {"job_id": job_id, "state": "queued"}
 
 
