@@ -107,6 +107,7 @@ class ScanConfig:
     excluded_paths: List[str] = field(default_factory=list)
     max_response_bytes: int = 1_000_000
     max_requests: int = 2_000
+    should_stop: Optional[Callable[[], bool]] = None
 
 
 class UnauthAccessScanner:
@@ -508,6 +509,9 @@ class UnauthAccessScanner:
             for method in self.config.methods:
                 if completed >= total:
                     break
+                if self.config.should_stop and self.config.should_stop():
+                    self.results = results
+                    return results
                 if progress_callback:
                     progress_callback(completed, total, path, method)
                 result = self.test_endpoint(path, method)
@@ -515,7 +519,12 @@ class UnauthAccessScanner:
                 completed += 1
                 if progress_callback:
                     progress_callback(completed, total, path, method)
-                if self.config.delay:
+                if self.config.should_stop and self.config.should_stop():
+                    self.results = results
+                    return results
+                if self.config.delay and not (
+                    self.config.should_stop and self.config.should_stop()
+                ):
                     time.sleep(self.config.delay)
             if completed >= total:
                 break

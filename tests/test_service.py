@@ -127,6 +127,39 @@ def test_scanner_respects_request_budget(monkeypatch):
     assert len(calls) == 3
 
 
+def test_scanner_honors_cooperative_cancellation(monkeypatch):
+    from red_wolf.scanner import EndpointResult, ScanConfig, UnauthAccessScanner
+
+    stopped = False
+    scanner = UnauthAccessScanner(
+        ScanConfig(
+            base_url="https://example.com",
+            endpoints=["one", "two"],
+            use_wordlist=False,
+            methods=["GET"],
+            learning=False,
+            auto_verify=False,
+            delay=0,
+            should_stop=lambda: stopped,
+        )
+    )
+
+    def fake_test(path, method):
+        nonlocal stopped
+        stopped = True
+        return EndpointResult(
+            url=f"https://example.com/{path}",
+            method=method,
+            status_code=404,
+            accessible=False,
+            cors_wildcard=False,
+        )
+
+    monkeypatch.setattr(scanner, "test_endpoint", fake_test)
+    results = scanner.run()
+    assert len(results) == 1
+
+
 def test_cli_parser_exposes_scope_and_response_limits():
     from red_wolf.cli import build_arg_parser
 

@@ -15,6 +15,7 @@ import os
 import secrets
 import sqlite3
 import socket
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +50,8 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 _executor = ThreadPoolExecutor(max_workers=int(os.environ.get("RED_WOLF_WORKERS", "2")))
+_cancel_events: dict[str, threading.Event] = {}
+_cancel_events_lock = threading.Lock()
 _MAX_JOBS_PER_WINDOW = int(os.environ.get("RED_WOLF_MAX_JOBS_PER_WINDOW", "5"))
 _JOB_WINDOW_SECONDS = int(os.environ.get("RED_WOLF_JOB_WINDOW_SECONDS", "3600"))
 
@@ -411,6 +414,8 @@ def _public_result(scanner: UnauthAccessScanner, results: list) -> dict:
 def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
     if not _mark_job_running(job_id, tenant_id):
         return
+    with _cancel_events_lock:
+        cancel_event = _cancel_events.setdefault(job_id, threading.Event())
     try:
         scanner = UnauthAccessScanner(
             ScanConfig(
@@ -429,6 +434,7 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
                 max_response_bytes=payload.get("max_response_bytes", 1_000_000),
                 max_requests=payload.get("max_requests", 2_000),
                 learning_namespace=tenant_id,
+                should_stop=cancel_event.is_set,
             )
         )
         results = scanner.run()
@@ -463,6 +469,9 @@ def _run_job(job_id: str, tenant_id: str, target: str, payload: dict) -> None:
             {"error": type(exc).__name__},
             tenant_id,
         )
+    finally:
+        with _cancel_events_lock:
+            _cancel_events.pop(job_id, None)
 
 
 @app.get("/healthz")
@@ -555,6 +564,10 @@ def create_job(request: ScanRequest, tenant_id: str = Depends(_require_token)) -
 
 @app.post("/v1/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, tenant_id: str = Depends(_require_token)) -> dict:
+    with _cancel_events_lock:
+        cancel_event = _cancel_events.get(job_id)
+        if cancel_event is not None:
+            cancel_event.set()
     with _connect() as db:
         row = db.execute(
             "SELECT state FROM jobs WHERE job_id = ? AND tenant_id = ?",

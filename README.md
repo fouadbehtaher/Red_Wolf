@@ -301,7 +301,9 @@ the worker in a restricted network with no access to instance metadata.
 Per-tenant job quotas are controlled by `RED_WOLF_MAX_JOBS_PER_WINDOW` and
 `RED_WOLF_JOB_WINDOW_SECONDS` (defaults: 5 jobs per hour). A queued or running
 job can be cancelled with `POST /v1/jobs/{job_id}/cancel`; cancellation
-prevents a completed result from being published.
+prevents a completed result from being published and stops an active scan
+between HTTP requests. An in-flight HTTP request is allowed to finish at its
+configured timeout so worker threads are never terminated unsafely.
 Quota reservation and job insertion happen in one SQLite transaction, so
 concurrent requests cannot bypass the limit through a check-then-insert race.
 
