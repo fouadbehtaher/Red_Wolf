@@ -35,7 +35,7 @@ submission-ready description.
 4. **Deep probe (`--deep-probe`)**: recursively extracts file references from JSON responses and actually tries to download them unauthenticated — turning "metadata leaked" into a **confirmed** file download.
 5. **AI-assisted analysis (`--ai-analyze`)**: sends a trimmed, structured summary of the findings to an LLM of your choice and gets back a risk narrative, a severity opinion, remediation steps, and a ready-to-paste submission paragraph.
 6. **Smart scan ordering (`--smart-order`)**: uses **Red Wolf Optimization (RWO)** -- a Grey-Wolf-Optimizer-style meta-heuristic bundled in `rwo.py` -- to learn which endpoint category (API / Admin / File / Misc) to test first, cutting the expected number of requests before hitting a real finding by ~30% versus plain alphabetical order. See `smart_schedule.py`.
-7. **Generates a report** (`--format md json html`) laid out like a bug bounty submission.
+7. **Generates a report** (`--format md json html sarif`) laid out like a bug bounty submission, with SARIF 2.1.0 output for compatible security-tooling workflows.
 8. **Learns locally from previous scans**: with `--smart-order`, observed
    accessible/high-signal paths are ranked earlier on the next scan. Only
    hashed hosts, normalized path patterns, counters, and optional feedback
@@ -101,7 +101,7 @@ python -m red_wolf.cli \
   --wordlist \
   --deep-probe \
   --ai-analyze --ai-provider openrouter --ai-api-key sk-... \
-  --format md json html \
+  --format md json html sarif \
   --output report \
   --i-am-authorized
 ```
@@ -131,7 +131,7 @@ python -m red_wolf.cli \
 | `--ai-api-key` | Your own key (or set `RED_WOLF_AI_API_KEY` env var) |
 | `--ai-model` | Override the default model for the chosen provider |
 | `--ai-base-url` | Required when `--ai-provider custom` — any OpenAI-compatible endpoint |
-| `--format` | `md`, `json`, `html` — any combination |
+| `--format` | `md`, `json`, `html`, `sarif` — any combination; SARIF output uses version 2.1.0 |
 | `--i-am-authorized` | Required confirmation gate |
 | `--interactive` / `-i` | Launch the interactive wizard instead of using flags |
 

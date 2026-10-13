@@ -174,7 +174,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=int, default=10, help="Per-request timeout in seconds (default: 10)")
     parser.add_argument("--delay", type=float, default=0.3, help="Delay between requests in seconds, to stay polite (default: 0.3)")
     parser.add_argument("--deep-probe", action="store_true", help="Attempt to extract and verify unauthenticated file downloads from JSON API responses")
-    parser.add_argument("--format", nargs="+", default=["md", "json"], choices=["md", "json", "html"], help="Report format(s) to write")
+    parser.add_argument("--format", nargs="+", default=["md", "json"], choices=["md", "json", "html", "sarif"], help="Report format(s) to write")
     parser.add_argument("--output", default="red_wolf_report", help="Output file prefix (default: red_wolf_report)")
     parser.add_argument("--i-am-authorized", action="store_true", help="Confirm you have explicit authorization to test this target")
 

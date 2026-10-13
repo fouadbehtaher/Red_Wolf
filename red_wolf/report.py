@@ -124,6 +124,95 @@ def to_json(report_data: dict) -> str:
     return json.dumps(report_data, indent=2, ensure_ascii=False)
 
 
+def to_sarif(report_data: dict) -> str:
+    """Serialize findings as SARIF 2.1.0 for security-tool interoperability."""
+    rules = {}
+    results = []
+    rule_descriptions = {
+        "red-wolf/sensitive-data-exposure-cors":
+            "Unauthenticated sensitive data exposure with permissive CORS",
+        "red-wolf/sensitive-data-exposure": "Unauthenticated sensitive data exposure",
+        "red-wolf/permissive-cors": "Permissive CORS on an unauthenticated endpoint",
+    }
+
+    for finding in report_data.get("findings", []):
+        if finding["sensitive_data_found"] and finding["cors_wildcard"]:
+            rule_id = "red-wolf/sensitive-data-exposure-cors"
+        elif finding["sensitive_data_found"]:
+            rule_id = "red-wolf/sensitive-data-exposure"
+        else:
+            rule_id = "red-wolf/permissive-cors"
+
+        if rule_id not in rules:
+            rules[rule_id] = {
+                "id": rule_id,
+                "shortDescription": {"text": rule_descriptions[rule_id]},
+                "fullDescription": {
+                    "text": (
+                        "Red Wolf identified an unauthenticated-access finding. "
+                        "The automated priority is heuristic and requires manual review."
+                    )
+                },
+                "help": {
+                    "text": (
+                        "Require authorization for sensitive resources and restrict CORS "
+                        "to explicitly trusted origins. Validate the impact manually."
+                    )
+                },
+                "properties": {"tags": ["security", "broken-access-control"]},
+            }
+
+        level = {"P3": "error", "P4": "warning", "P5": "note"}.get(
+            finding["priority"], "warning"
+        )
+        signals = []
+        if finding["sensitive_data_found"]:
+            signals.append("sensitive-data indicators were detected")
+        if finding["cors_wildcard"]:
+            signals.append("Access-Control-Allow-Origin is wildcard")
+        message = (
+            f"Unauthenticated {finding['method']} request returned HTTP "
+            f"{finding['status_code']}; {', '.join(signals)}. "
+            f"Verification: {finding['verification_status']}."
+        )
+        results.append({
+            "ruleId": rule_id,
+            "ruleIndex": list(rules).index(rule_id),
+            "level": level,
+            "message": {"text": message},
+            "locations": [{
+                "physicalLocation": {
+                    "artifactLocation": {"uri": finding["url"]},
+                },
+            }],
+            "properties": {
+                "priority": finding["priority"],
+                "priorityIsHeuristic": True,
+                "confidence": finding["confidence"],
+                "verificationStatus": finding["verification_status"],
+                "evidenceScore": finding["evidence_score"],
+                "evidenceReasons": finding["evidence_reasons"],
+                "vrt": finding["vrt"],
+            },
+        })
+
+    sarif_data = {
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "Red Wolf",
+                    "rules": list(rules.values()),
+                },
+            },
+            "results": results,
+            "properties": {"target": report_data["target_location"]},
+        }],
+    }
+    return json.dumps(sarif_data, indent=2, ensure_ascii=False)
+
+
 def to_markdown(report_data: dict) -> str:
     lines = []
     lines.append(f"# Unauthenticated Access Scan Report\n")
@@ -265,5 +354,10 @@ def write_reports(report_data: dict, output_prefix: str, formats=("json", "md", 
         path = f"{output_prefix}.html"
         with open(path, "w", encoding="utf-8") as f:
             f.write(to_html(report_data))
+        written.append(path)
+    if "sarif" in formats:
+        path = f"{output_prefix}.sarif"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(to_sarif(report_data))
         written.append(path)
     return written
