@@ -30,15 +30,14 @@ import time
 import webbrowser
 from pathlib import Path
 
-from .scanner import ScanConfig, UnauthAccessScanner
-from .wordlists import load_wordlist_from_file
-from .deep_probe import deep_probe_json_endpoints
-from .report import build_report_data, write_reports, attach_ai_analysis
-from .ai_analysis import AIConfig, AIAnalysisError, analyze_report, detect_provider
-from .targets import expand_target
-from .scope import ScopePolicy
 from . import __version__
-
+from .ai_analysis import AIAnalysisError, AIConfig, analyze_report, detect_provider
+from .deep_probe import deep_probe_json_endpoints
+from .report import attach_ai_analysis, build_report_data, write_reports
+from .scanner import ScanConfig, UnauthAccessScanner
+from .scope import ScopePolicy
+from .targets import expand_target
+from .wordlists import load_wordlist_from_file
 
 BANNER = r"""
   ____          _  __        __    _  __

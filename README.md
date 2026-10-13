@@ -451,8 +451,9 @@ python -m red_wolf.cli --url http://127.0.0.1:5055 \
   submitting a report.
 - The default wordlist is generic on purpose. Add product-specific
   paths via `--custom-wordlist` per target instead of hardcoding them.
-- This tool does not enforce platform scope itself — confirming scope
-  is on you before you run it.
+- The CLI does not fetch or sync bug-bounty platform policies. You can
+  provide a manually verified host allowlist with `--scope-file`; the hosted
+  service separately enforces `RED_WOLF_ALLOWED_HOSTS`.
 - The SQLite worker recovers safely after a restart by marking interrupted
   jobs as failed with a `service_restarted` audit event. It does not resume
   interrupted scans; use a durable queue for multi-process or high-volume

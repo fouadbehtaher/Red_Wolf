@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-
 _DOMAIN_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
@@ -39,10 +38,17 @@ def _host_from_target(target: str) -> str:
     try:
         parsed = urlsplit(target)
         host = parsed.hostname
-        parsed.port
+        port = parsed.port
     except ValueError as exc:
         raise ValueError(f"Invalid target URL: {target}") from exc
-    if not host:
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not host
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+        or (port is not None and not 0 <= port <= 65535)
+    ):
         raise ValueError(f"Invalid target URL: {target}")
     return _normalize_host(host)
 
@@ -62,7 +68,7 @@ class ScopePolicy:
     excluded: tuple[str, ...]
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "ScopePolicy":
+    def from_file(cls, path: str | Path) -> ScopePolicy:
         included: list[str] = []
         excluded: list[str] = []
         for line_number, raw_line in enumerate(

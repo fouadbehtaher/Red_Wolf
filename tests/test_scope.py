@@ -66,6 +66,24 @@ def test_scope_file_option_is_available_from_cli():
     assert args.scope_file == "scope.txt"
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ftp://example.com",
+        "https://scanner-identity@example.com",
+        "https://example.com/#fragment",
+        "https://example.com:invalid",
+    ],
+)
+def test_scope_rejects_invalid_or_credential_bearing_targets(tmp_path, target):
+    scope_file = tmp_path / "scope.txt"
+    scope_file.write_text("example.com\n", encoding="utf-8")
+    policy = ScopePolicy.from_file(scope_file)
+
+    with pytest.raises(ValueError):
+        policy.permits(target)
+
+
 def test_out_of_scope_target_is_rejected_before_scanning(tmp_path, monkeypatch, capsys):
     scope_file = tmp_path / "scope.txt"
     scope_file.write_text("allowed.example\n", encoding="utf-8")
