@@ -36,6 +36,7 @@ from .deep_probe import deep_probe_json_endpoints
 from .report import build_report_data, write_reports, attach_ai_analysis
 from .ai_analysis import AIConfig, AIAnalysisError, analyze_report, detect_provider
 from .targets import expand_target
+from .scope import ScopePolicy
 from . import __version__
 
 
@@ -157,6 +158,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"Red Wolf {__version__}")
     parser.add_argument("--interactive", "-i", action="store_true", help="Run an interactive wizard that prompts for the target and options instead of using flags")
     parser.add_argument("--url", help="Base URL of the authorized target, e.g. https://target.example.com")
+    parser.add_argument("--scope-file", help="Optional UTF-8 host allowlist; supports *.example.com and !excluded.example.com")
     parser.add_argument("--endpoints-file", help="Text file with one known endpoint path per line (from Burp/recon)")
     parser.add_argument("--wordlist", action="store_true", help="Also fuzz the built-in default wordlist of common sensitive paths")
     parser.add_argument("--custom-wordlist", help="Path to a custom wordlist file (overrides the built-in default if --wordlist is set)")
@@ -340,6 +342,18 @@ def execute(args: argparse.Namespace) -> int:
     if not targets:
         print("[!] No resolvable targets found.", file=sys.stderr)
         return 1
+    if getattr(args, "scope_file", None):
+        try:
+            scope = ScopePolicy.from_file(args.scope_file)
+            targets, rejected_targets = scope.filter_targets(targets)
+        except (OSError, UnicodeError, ValueError) as exc:
+            print(f"[!] Could not load target scope: {exc}", file=sys.stderr)
+            return 1
+        for target in rejected_targets:
+            print(f"[!] Skipping target outside the supplied scope: {target}", file=sys.stderr)
+        if not targets:
+            print("[!] No targets from the target input are included in --scope-file.", file=sys.stderr)
+            return 1
 
     endpoints = []
     if args.endpoints_file:

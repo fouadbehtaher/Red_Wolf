@@ -111,6 +111,7 @@ python -m red_wolf.cli \
 | Flag | Meaning |
 |---|---|
 | `--url` | Base URL of the authorized target |
+| `--scope-file` | Optional UTF-8 host allowlist applied before scanning; exact hosts and `*.example.com` are supported, and `!host.example.com` exclusions take precedence |
 | target input | The interactive wizard also accepts a CIDR range such as `192.0.2.0/28` or a wildcard such as `*.example.com` |
 | `--endpoints-file` | Text file, one path per line (manual/recon-sourced endpoints) |
 | `--wordlist` | Also fuzz the built-in wordlist of common sensitive paths |
@@ -139,6 +140,16 @@ The scan always tests the authorized base target first. When discovery is
 enabled, it uses at most one quarter of the request budget for robots,
 sitemaps, API descriptions, HTML, and JavaScript discovery; the remaining
 budget is reserved for testing the base target and discovered/wordlist paths.
+For bounty programs with a defined asset list, pass `--scope-file` to
+restrict expanded targets before any HTTP scan request is sent. Use one host
+or wildcard per line, prefix explicit exclusions with `!`, and put comments
+on separate lines beginning with `#`. The file must contain at least one
+included host; exclusions always override inclusions. For example:
+
+```text
+*.example.com
+!internal.example.com
+```
 
 The hosted API accepts `deep_probe: true` to re-fetch accessible JSON
 responses, HTML, and JavaScript, extract same-origin file references, and
