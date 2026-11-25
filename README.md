@@ -27,6 +27,8 @@ submission-ready description.
 
 ## What it does
 
+![Red Wolf scan flow](docs/images/redwolf-scan-flow.png)
+
 1. **Discovers endpoints** two ways at once:
    - From a file you supply (`--endpoints-file`), e.g. paths you found via Burp/recon.
    - From a built-in wordlist of common sensitive paths (`--wordlist`), e.g. `api/search`, `admin`, `.git/config`, `actuator/env`.
